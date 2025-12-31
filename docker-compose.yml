@@ -1,0 +1,39 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15
+    container_name: contrarian-ai-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: contrarian
+      POSTGRES_PASSWORD: contrarian_dev
+      POSTGRES_DB: contrarian_ai
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U contrarian -d contrarian_ai"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # Redis for caching (optional, can be enabled later)
+  # redis:
+  #   image: redis:7-alpine
+  #   container_name: contrarian-ai-redis
+  #   ports:
+  #     - "6379:6379"
+  #   volumes:
+  #     - redis_data:/data
+  #   healthcheck:
+  #     test: ["CMD", "redis-cli", "ping"]
+  #     interval: 5s
+  #     timeout: 5s
+  #     retries: 5
+  #   restart: unless-stopped
+
+volumes:
+  postgres_data:
+  # redis_data:

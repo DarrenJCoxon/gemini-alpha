@@ -1,0 +1,22 @@
+{
+  "name": "contrarian-ai",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@10.12.4",
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "lint": "turbo run lint",
+    "format": "prettier --write \"**/*.{ts,tsx,md}\"",
+    "db:generate": "turbo run db:generate",
+    "db:push": "turbo run db:push",
+    "db:studio": "pnpm --filter @contrarian-ai/database db:studio",
+    "bot:dev": "cd apps/bot && source .venv/bin/activate && uvicorn main:app --reload --port 8000",
+    "bot:install": "cd apps/bot && python -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt",
+    "test": "turbo run test"
+  },
+  "devDependencies": {
+    "prettier": "^3.2.0",
+    "turbo": "^2.3.0"
+  }
+}
