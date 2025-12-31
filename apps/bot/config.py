@@ -146,6 +146,69 @@ class VertexAIConfig:
 
 
 @dataclass
+class GeminiConfig:
+    """
+    Google Gemini AI configuration for Sentiment Analysis (Story 2.2).
+
+    Uses the google-generativeai library (not Vertex AI) for faster,
+    cost-effective text analysis with Gemini Flash models.
+    """
+
+    api_key: Optional[str] = field(
+        default_factory=lambda: os.getenv("GOOGLE_AI_API_KEY")
+    )
+    # Gemini Flash model for sentiment analysis (fast and cost-effective)
+    model_name: str = field(
+        default_factory=lambda: os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
+    )
+    # Low temperature for consistent sentiment analysis
+    temperature: float = field(
+        default_factory=lambda: float(os.getenv("GEMINI_TEMPERATURE", "0.3"))
+    )
+    # Maximum tokens for sentiment responses
+    max_output_tokens: int = field(
+        default_factory=lambda: int(os.getenv("GEMINI_MAX_TOKENS", "1024"))
+    )
+
+    def is_configured(self) -> bool:
+        """Check if Gemini API is properly configured."""
+        return self.api_key is not None and len(self.api_key) > 0
+
+
+def get_gemini_flash_model():
+    """
+    Get configured Gemini Flash model for text/sentiment analysis.
+
+    Uses google-generativeai library with Gemini Flash for fast,
+    cost-effective sentiment analysis in the Council of Agents.
+
+    Returns:
+        Configured GenerativeModel instance
+
+    Raises:
+        ValueError: If GOOGLE_AI_API_KEY is not set
+    """
+    import google.generativeai as genai
+
+    gemini_config = GeminiConfig()
+
+    if not gemini_config.is_configured():
+        raise ValueError("GOOGLE_AI_API_KEY not set")
+
+    genai.configure(api_key=gemini_config.api_key)
+
+    # Gemini Flash - optimized for fast text analysis
+    model = genai.GenerativeModel(
+        model_name=gemini_config.model_name,
+        generation_config={
+            "temperature": gemini_config.temperature,
+            "max_output_tokens": gemini_config.max_output_tokens,
+        }
+    )
+    return model
+
+
+@dataclass
 class Config:
     """Main application configuration."""
 
@@ -155,6 +218,7 @@ class Config:
     social: SocialConfig = field(default_factory=SocialConfig)
     scheduler: SchedulerConfig = field(default_factory=SchedulerConfig)
     vertex_ai: VertexAIConfig = field(default_factory=VertexAIConfig)
+    gemini: GeminiConfig = field(default_factory=GeminiConfig)
     web_url: str = field(default_factory=lambda: os.getenv("WEB_URL", ""))
     debug: bool = field(
         default_factory=lambda: os.getenv("DEBUG", "").lower() == "true"

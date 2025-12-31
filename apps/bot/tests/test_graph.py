@@ -167,17 +167,18 @@ class TestGraphOutputs:
 
 
 class TestGraphStubBehavior:
-    """Tests verifying stub implementation behavior."""
+    """Tests verifying behavior with insufficient/no data."""
 
-    def test_graph_stub_returns_neutral_technical(self):
-        """Test stub returns NEUTRAL technical signal."""
+    def test_graph_insufficient_data_returns_neutral_technical(self):
+        """Test returns NEUTRAL technical signal when no data provided."""
         graph = build_council_graph()
         state = create_initial_state(asset_symbol="SOLUSD")
 
         result = graph.invoke(state)
 
+        # With no candle data, technical analysis returns NEUTRAL with 0 strength
         assert result["technical_analysis"]["signal"] == "NEUTRAL"
-        assert result["technical_analysis"]["strength"] == 50
+        assert result["technical_analysis"]["strength"] == 0  # No confidence without data
 
     def test_graph_stub_returns_neutral_sentiment(self):
         """Test stub returns neutral fear score (50)."""

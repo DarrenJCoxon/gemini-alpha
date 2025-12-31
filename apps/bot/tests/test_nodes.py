@@ -56,16 +56,17 @@ class TestTechnicalNode:
         assert "volume_delta" in analysis
         assert "reasoning" in analysis
 
-    def test_technical_node_stub_values(self):
-        """Test technical_node stub returns expected NEUTRAL values."""
+    def test_technical_node_insufficient_data_values(self):
+        """Test technical_node returns NEUTRAL when insufficient data provided."""
+        # With no candles, the node should return NEUTRAL
         state = create_initial_state(asset_symbol="SOLUSD")
         result = technical_node(state)
         analysis = result["technical_analysis"]
 
-        # Stub implementation returns neutral values
+        # Insufficient data returns neutral values
         assert analysis["signal"] == "NEUTRAL"
-        assert analysis["strength"] == 50
-        assert analysis["rsi"] == 50.0
+        assert analysis["strength"] == 0  # No confidence with no data
+        assert analysis["rsi"] == 50.0  # Default neutral RSI
 
     def test_technical_node_valid_signal_values(self):
         """Test technical_node signal is one of valid options."""

@@ -258,18 +258,19 @@ class TestCouncilSessionValidation:
 
 
 class TestCouncilSessionStubBehavior:
-    """Tests verifying stub behavior in session responses."""
+    """Tests verifying behavior with insufficient/no data in session responses."""
 
-    def test_session_stub_technical_neutral(self, client):
-        """Test session stub returns NEUTRAL technical signal."""
+    def test_session_insufficient_data_technical_neutral(self, client):
+        """Test session returns NEUTRAL technical signal when no data provided."""
         response = client.post(
             "/api/council/session",
             json={"asset_symbol": "SOLUSD"}
         )
 
         data = response.json()
+        # With no candle data, technical analysis returns NEUTRAL with 0 strength
         assert data["technical_analysis"]["signal"] == "NEUTRAL"
-        assert data["technical_analysis"]["strength"] == 50
+        assert data["technical_analysis"]["strength"] == 0  # No confidence without data
 
     def test_session_stub_sentiment_neutral(self, client):
         """Test session stub returns neutral fear score."""

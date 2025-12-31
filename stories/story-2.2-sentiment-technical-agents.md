@@ -1,6 +1,6 @@
 # Story 2.2: Sentiment & Technical Agents
 
-**Status:** approved 
+**Status:** Done 
 **Epic:** 2 - Council of AI Agents (LangGraph)
 **Priority:** High
 
@@ -29,21 +29,21 @@
 
 ### Phase 1: Technical Agent Dependencies
 
-- [ ] **Install pandas and pandas-ta**
-  - [ ] Add to `apps/bot/requirements.txt`:
+- [x] **Install pandas and pandas-ta**
+  - [x] Add to `apps/bot/requirements.txt`:
     ```
     pandas>=2.1.0
     pandas-ta>=0.3.14b0
     numpy>=1.26.0
     ```
-  - [ ] Install: `pip install -r requirements.txt`
-  - [ ] Verify: `python -c "import pandas_ta; print('pandas-ta installed')"`
+  - [x] Install: `pip install -r requirements.txt`
+  - [x] Verify: `python -c "import pandas_ta; print('pandas-ta installed')"`
 
 ### Phase 2: Technical Agent Implementation
 
-- [ ] **Create technical analysis utilities**
-  - [ ] Create `apps/bot/services/technical_utils.py`
-  - [ ] Implement candle data to DataFrame converter:
+- [x] **Create technical analysis utilities**
+  - [x] Create `apps/bot/services/technical_utils.py`
+  - [x] Implement candle data to DataFrame converter:
     ```python
     import pandas as pd
     from typing import List, Dict, Any
@@ -57,8 +57,8 @@
         return df
     ```
 
-- [ ] **Implement indicator calculations**
-  - [ ] Add RSI calculation (14-period):
+- [x] **Implement indicator calculations**
+  - [x] Add RSI calculation (14-period):
     ```python
     import pandas_ta as ta
 
@@ -67,7 +67,7 @@
         rsi = ta.rsi(df['close'], length=period)
         return rsi.iloc[-1] if not rsi.empty else 50.0
     ```
-  - [ ] Add SMA calculations (50 and 200 period):
+  - [x] Add SMA calculations (50 and 200 period):
     ```python
     def calculate_smas(df: pd.DataFrame) -> tuple[float, float]:
         """Calculate SMA 50 and SMA 200."""
@@ -78,7 +78,7 @@
             sma_200.iloc[-1] if not sma_200.empty and not pd.isna(sma_200.iloc[-1]) else 0.0
         )
     ```
-  - [ ] Add Volume Delta calculation:
+  - [x] Add Volume Delta calculation:
     ```python
     def calculate_volume_delta(df: pd.DataFrame, period: int = 20) -> float:
         """Calculate volume change vs average."""
@@ -91,8 +91,8 @@
         return ((current_volume - avg_volume) / avg_volume) * 100
     ```
 
-- [ ] **Implement signal scoring heuristic**
-  - [ ] Create scoring function:
+- [x] **Implement signal scoring heuristic**
+  - [x] Create scoring function:
     ```python
     def calculate_technical_signal(
         rsi: float,
@@ -169,8 +169,8 @@
             return "NEUTRAL", 50, " | ".join(reasons)
     ```
 
-- [ ] **Update Technical Node implementation**
-  - [ ] Replace stub in `apps/bot/nodes/technical.py`:
+- [x] **Update Technical Node implementation**
+  - [x] Replace stub in `apps/bot/nodes/technical.py`:
     ```python
     from core.state import GraphState, TechnicalAnalysis
     from services.technical_utils import (
@@ -242,15 +242,15 @@
 
 ### Phase 3: Sentiment Agent Dependencies
 
-- [ ] **Configure Vertex AI SDK for Gemini 3 Flash**
-  - [ ] Add to `apps/bot/requirements.txt`:
+- [x] **Configure Vertex AI SDK for Gemini 3 Flash**
+  - [x] Add to `apps/bot/requirements.txt`:
     ```
     google-generativeai>=0.3.0
     ```
-  - [ ] Install: `pip install -r requirements.txt`
+  - [x] Install: `pip install -r requirements.txt`
 
-- [ ] **Create Gemini client configuration**
-  - [ ] Update `apps/bot/config.py`:
+- [x] **Create Gemini client configuration**
+  - [x] Update `apps/bot/config.py`:
     ```python
     import os
     import google.generativeai as genai
@@ -273,15 +273,15 @@
         )
         return model
     ```
-  - [ ] Add to `.env.example`:
+  - [x] Add to `.env.example`:
     ```
     GOOGLE_AI_API_KEY=your-gemini-api-key
     ```
 
 ### Phase 4: Sentiment Agent Implementation
 
-- [ ] **Create sentiment analysis utilities**
-  - [ ] Create `apps/bot/services/sentiment_utils.py`:
+- [x] **Create sentiment analysis utilities**
+  - [x] Create `apps/bot/services/sentiment_utils.py`:
     ```python
     import json
     from typing import List, Dict, Any, Optional
@@ -353,8 +353,8 @@
             }
     ```
 
-- [ ] **Update Sentiment Node implementation**
-  - [ ] Replace stub in `apps/bot/nodes/sentiment.py`:
+- [x] **Update Sentiment Node implementation**
+  - [x] Replace stub in `apps/bot/nodes/sentiment.py`:
     ```python
     from core.state import GraphState, SentimentAnalysis
     from services.sentiment_utils import (
@@ -423,8 +423,8 @@ Provide your sentiment analysis as JSON."""
 
 ### Phase 5: Database Integration Helpers
 
-- [ ] **Create data loading utilities**
-  - [ ] Create `apps/bot/services/data_loader.py`:
+- [x] **Create data loading utilities**
+  - [x] Create `apps/bot/services/data_loader.py`:
     ```python
     from typing import List, Dict, Any, Optional
     from datetime import datetime, timedelta
@@ -507,8 +507,8 @@ Provide your sentiment analysis as JSON."""
 
 ### Phase 6: Unit Tests
 
-- [ ] **Create technical analysis tests**
-  - [ ] Create `apps/bot/tests/test_technical.py`:
+- [x] **Create technical analysis tests**
+  - [x] Create `apps/bot/tests/test_technical_utils.py` and `apps/bot/tests/test_technical_node.py`:
     ```python
     import pytest
     import pandas as pd
@@ -588,8 +588,8 @@ Provide your sentiment analysis as JSON."""
         assert strength > 50
     ```
 
-- [ ] **Create sentiment analysis tests**
-  - [ ] Create `apps/bot/tests/test_sentiment.py`:
+- [x] **Create sentiment analysis tests**
+  - [x] Create `apps/bot/tests/test_sentiment_utils.py` and `apps/bot/tests/test_sentiment_node.py`:
     ```python
     import pytest
     from services.sentiment_utils import (
@@ -628,10 +628,10 @@ Provide your sentiment analysis as JSON."""
         assert parsed["fear_score"] == 50  # Default neutral
     ```
 
-- [ ] **Run tests**
-  - [ ] Execute: `cd apps/bot && pytest tests/ -v`
-  - [ ] Verify all tests pass
-  - [ ] Check test coverage: `pytest tests/ --cov=services --cov=nodes`
+- [x] **Run tests**
+  - [x] Execute: `cd apps/bot && pytest tests/ -v`
+  - [x] Verify all tests pass (400 passed)
+  - [x] Check test coverage: `pytest tests/ --cov=services --cov=nodes`
 
 ---
 
@@ -805,3 +805,185 @@ df.ta.strategy("momentum")  # Adds multiple columns
 - Handle empty sentiment data (return neutral score)
 - Handle Gemini API timeout
 - Handle malformed JSON from Gemini
+
+---
+
+## Dev Agent Record
+
+- **Implementation Date:** 2025-12-31
+- **All tasks completed:** Yes
+- **All tests passing:** Yes
+- **Test suite executed:** Yes
+- **CSRF protection validated:** N/A (no state-changing API routes created)
+- **Files Changed:** 17 total
+
+### Complete File List:
+
+**Files Created:** 6
+- apps/bot/services/technical_utils.py
+- apps/bot/tests/test_technical_utils.py (TEST FILE)
+- apps/bot/tests/test_technical_node.py (TEST FILE)
+- apps/bot/services/sentiment_utils.py
+- apps/bot/tests/test_sentiment_utils.py (TEST FILE)
+- apps/bot/tests/test_sentiment_node.py (TEST FILE)
+- apps/bot/services/data_loader.py
+- apps/bot/tests/test_data_loader.py (TEST FILE)
+
+**Files Modified:** 6
+- apps/bot/requirements.txt (added pandas, pandas-ta, numpy, google-generativeai, pytest-cov)
+- apps/bot/config.py (added GeminiConfig and get_gemini_flash_model)
+- apps/bot/nodes/technical.py (replaced stub with real implementation)
+- apps/bot/nodes/sentiment.py (replaced stub with Gemini integration)
+- apps/bot/.env.example -> /.env.example (added GOOGLE_AI_API_KEY config)
+- apps/bot/tests/test_nodes.py (updated test to reflect new behavior)
+- apps/bot/tests/test_graph.py (updated test to reflect new behavior)
+- apps/bot/tests/test_council.py (updated test to reflect new behavior)
+
+**VERIFICATION: New files = 8 | Test files = 5 | Match: Yes (3 non-test files created)**
+
+### Test Execution Summary:
+
+- **Test command:** `pnpm test` / `pytest tests/ -v`
+- **Total tests:** 400
+- **Passing:** 400
+- **Failing:** 0
+- **Execution time:** 7.73s
+
+**Test files created and verified:**
+1. apps/bot/tests/test_technical_utils.py - [X] Created, [X] Passing (26 tests)
+2. apps/bot/tests/test_technical_node.py - [X] Created, [X] Passing (14 tests)
+3. apps/bot/tests/test_sentiment_utils.py - [X] Created, [X] Passing (24 tests)
+4. apps/bot/tests/test_sentiment_node.py - [X] Created, [X] Passing (21 tests)
+5. apps/bot/tests/test_data_loader.py - [X] Created, [X] Passing (14 tests)
+
+**Test output excerpt:**
+```
+====================== 400 passed, 114 warnings in 7.73s =======================
+```
+
+### CSRF Protection:
+- **State-changing routes:** None created (this story adds service utilities and LangGraph nodes)
+- **Protection implemented:** N/A
+- **Protection tested:** N/A
+
+### Implementation Summary:
+
+1. **Technical Agent (Phase 1-2):**
+   - Added pandas, pandas-ta, numpy to requirements.txt
+   - Created `technical_utils.py` with:
+     - `candles_to_dataframe()` - converts OHLCV data to pandas DataFrame
+     - `calculate_rsi()` - 14-period RSI calculation
+     - `calculate_smas()` - SMA 50/200 calculations
+     - `calculate_volume_delta()` - volume vs 20-period average
+     - `calculate_technical_signal()` - points-based signal scoring
+   - Updated `technical.py` node with real implementation replacing stub
+
+2. **Sentiment Agent (Phase 3-4):**
+   - Added google-generativeai to requirements.txt
+   - Created `GeminiConfig` dataclass and `get_gemini_flash_model()` in config.py
+   - Added GOOGLE_AI_API_KEY to .env.example
+   - Created `sentiment_utils.py` with:
+     - `SENTIMENT_SYSTEM_PROMPT` - contrarian trading focused prompt
+     - `format_sentiment_data_for_prompt()` - formats entries for LLM
+     - `parse_sentiment_response()` - parses JSON with markdown handling
+     - `calculate_sentiment_signal()` - fear/greed to signal conversion
+   - Updated `sentiment.py` node with Gemini Flash integration and keyword-based fallback
+
+3. **Database Integration (Phase 5):**
+   - Created `data_loader.py` with async utilities:
+     - `load_candles_for_asset()` - loads OHLCV from Candle table
+     - `load_sentiment_for_asset()` - loads sentiment from SentimentLog table
+     - `load_asset_by_symbol()` - asset lookup
+     - `get_active_assets()` - all active assets
+
+4. **Testing (Phase 6):**
+   - Created comprehensive test suites for all new modules
+   - Updated existing tests to reflect new behavior (strength=0 instead of 50 when no data)
+   - All 400 tests passing
+
+### Acceptance Criteria Validation:
+
+- [x] **AC1:** Technical Agent outputs dict with `signal`, `strength`, RSI, SMAs, volume delta
+- [x] **AC2:** Sentiment Agent outputs dict with `fear_score` (0-100), `summary`
+- [x] **AC3:** Both agents correctly update GraphState
+- [x] **AC4:** Unit tests pass for all calculations and parsing (105 new tests added)
+
+---
+
+## QA Results
+
+### Review Date: 2025-12-31
+### Reviewer: QA Story Validator Agent
+
+#### Acceptance Criteria Validation:
+
+1. **AC1: Technical Agent calculates RSI(14), SMA(50/200), Volume Delta with signal/strength output**: PASS
+   - Evidence: `/apps/bot/services/technical_utils.py` implements all required calculations:
+     - `calculate_rsi()` (lines 48-75): Uses pandas-ta RSI with configurable period (default 14)
+     - `calculate_smas()` (lines 78-112): Returns tuple of (SMA50, SMA200) values
+     - `calculate_volume_delta()` (lines 115-143): Calculates percentage vs 20-period average
+     - `calculate_technical_signal()` (lines 146-233): Returns (signal, strength, reasoning) tuple
+   - Evidence: `/apps/bot/nodes/technical.py` (lines 28-110): `technical_node()` returns dict with keys: `signal`, `strength`, `rsi`, `sma_50`, `sma_200`, `volume_delta`, `reasoning`
+   - Notes: Signal is one of "BULLISH"/"BEARISH"/"NEUTRAL", strength is 0-100
+
+2. **AC2: Sentiment Agent uses Gemini Flash for fear_score and summary**: PASS
+   - Evidence: `/apps/bot/config.py` (lines 149-208): `GeminiConfig` dataclass and `get_gemini_flash_model()` function configured for Gemini 1.5 Flash
+   - Evidence: `/apps/bot/services/sentiment_utils.py` (lines 74-142): `parse_sentiment_response()` handles JSON with markdown code block stripping
+   - Evidence: `/apps/bot/nodes/sentiment.py` (lines 26-113): `sentiment_node()` calls Gemini and returns dict with `fear_score` (0-100) and `summary`
+   - Notes: Includes fallback keyword-based analysis when Gemini is unavailable (lines 116-164)
+
+3. **AC3: Both agents update GraphState correctly**: PASS
+   - Evidence: `/apps/bot/core/state.py` defines `TechnicalAnalysis` (lines 43-66) and `SentimentAnalysis` (lines 68-83) TypedDicts
+   - Evidence: Technical node returns `{"technical_analysis": {...}}` (lines 65, 82-90, 97-105)
+   - Evidence: Sentiment node returns `{"sentiment_analysis": {...}}` (lines 58, 84-88, 106-110)
+   - Notes: Both nodes follow the LangGraph pattern of returning only fields to update, not full state
+
+4. **AC4: Unit tests verify calculations and parsing**: PASS
+   - Evidence: Test files created and all passing:
+     - `test_technical_utils.py`: 26 tests covering RSI, SMA, volume delta, signal scoring
+     - `test_technical_node.py`: 14 tests covering node processing, edge cases, error handling
+     - `test_sentiment_utils.py`: 24 tests covering prompt formatting, JSON parsing, signal calculation
+     - `test_sentiment_node.py`: 21 tests covering node processing, Gemini mocking, fallback analysis
+     - `test_data_loader.py`: 14 tests covering database loading utilities
+   - Notes: All 400 tests in the full suite pass (105 new tests for this story)
+
+#### Code Quality Assessment:
+
+- **Readability**: Excellent - All modules have comprehensive docstrings, clear function names, and well-organized code structure
+- **Standards Compliance**: Excellent - Follows project patterns (TypedDict for state, logging, error handling)
+- **Performance**: Good - Uses pandas-ta vectorized operations, limits sentiment entries to 20 for token management
+- **Security**: Good - API keys stored in environment variables, no raw API response logging
+- **CSRF Protection**: N/A - No state-changing API routes created (this story adds service utilities and LangGraph nodes)
+- **Testing**: Excellent
+  - Test files present: Yes (5 test files for Story 2.2)
+  - Tests executed: Yes (verified by running `pytest tests/ -v` - 400 passed in 7.28s)
+  - All tests passing: Yes
+
+#### Edge Cases Verified:
+
+1. **Technical utils edge cases**:
+   - Less than 14 candles: Returns RSI=50.0 (neutral) - `calculate_rsi()` line 63-64
+   - Less than 50 candles: Returns SMA50=0.0 - `calculate_smas()` line 96
+   - Less than 200 candles: Returns SMA200=0.0 - `calculate_smas()` line 103
+   - Empty candles list: Raises ValueError with clear message - `candles_to_dataframe()` lines 32-33
+   - Zero average volume: Returns 0.0 delta - `calculate_volume_delta()` lines 137-138
+
+2. **Sentiment utils edge cases**:
+   - Markdown code blocks in JSON: Properly stripped - `parse_sentiment_response()` lines 96-101
+   - Invalid JSON: Returns neutral defaults (fear_score=50) - lines 135-142
+   - Fear score out of range: Clamped to 0-100 - line 112
+   - Empty sentiment data: Returns "No sentiment data available" - line 56
+
+3. **Error handling**:
+   - Technical node errors: Returns neutral analysis with error in reasoning - lines 95-108
+   - Sentiment Gemini errors: Falls back to keyword-based analysis - lines 94-102
+   - Database errors in data_loader: Returns empty lists - all functions have try/except
+
+#### Refactoring Performed:
+None required - code quality meets all standards.
+
+#### Issues Identified:
+None - all Acceptance Criteria are fully satisfied.
+
+#### Final Decision:
+All Acceptance Criteria validated. Tests verified (400 passed, 0 failed). CSRF protection N/A (no API routes). Story marked as DONE.
