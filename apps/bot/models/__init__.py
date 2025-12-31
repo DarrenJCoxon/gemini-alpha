@@ -1,6 +1,27 @@
 """
 Models module - SQLModel definitions.
 
-This module will contain SQLModel classes that mirror the Prisma schema
+This module contains SQLModel classes that mirror the Prisma schema
 for type-safe database operations in Python.
 """
+
+from .base import Decision, TradeStatus, generate_cuid
+from .asset import Asset
+from .candle import Candle
+from .sentiment import SentimentLog
+from .council import CouncilSession
+from .trade import Trade
+
+__all__ = [
+    # Enums
+    "Decision",
+    "TradeStatus",
+    # Utility functions
+    "generate_cuid",
+    # Models
+    "Asset",
+    "Candle",
+    "SentimentLog",
+    "CouncilSession",
+    "Trade",
+]

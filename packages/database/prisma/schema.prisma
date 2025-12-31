@@ -11,6 +11,27 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// =============================================================================
+// ENUMS
+// =============================================================================
+
+enum Decision {
+  BUY
+  HOLD
+  SELL
+}
+
+enum TradeStatus {
+  PENDING
+  OPEN
+  CLOSED
+  CANCELLED
+}
+
+// =============================================================================
+// AUTH MODELS (NextAuth.js)
+// =============================================================================
+
 // User account model for authentication
 model User {
   id            String    @id @default(cuid())
@@ -68,4 +89,106 @@ model VerificationToken {
 
   @@unique([identifier, token])
   @@map("verification_tokens")
+}
+
+// =============================================================================
+// TRADING MODELS
+// =============================================================================
+
+// Crypto asset definition
+model Asset {
+  id          String    @id @default(cuid())
+  symbol      String    @unique
+  name        String?
+  isActive    Boolean   @default(true)
+  lastPrice   Decimal?  @db.Decimal(18, 8)
+  lastUpdated DateTime?
+  createdAt   DateTime  @default(now())
+
+  candles         Candle[]
+  sentimentLogs   SentimentLog[]
+  councilSessions CouncilSession[]
+  trades          Trade[]
+}
+
+// OHLCV candle data
+model Candle {
+  id        String   @id @default(cuid())
+  assetId   String
+  timestamp DateTime
+  timeframe String   @default("15m")
+  open      Decimal  @db.Decimal(18, 8)
+  high      Decimal  @db.Decimal(18, 8)
+  low       Decimal  @db.Decimal(18, 8)
+  close     Decimal  @db.Decimal(18, 8)
+  volume    Decimal  @db.Decimal(24, 8)
+
+  asset Asset @relation(fields: [assetId], references: [id])
+
+  @@unique([assetId, timestamp, timeframe])
+  @@index([assetId, timestamp])
+}
+
+// Sentiment data from various sources
+model SentimentLog {
+  id             String   @id @default(cuid())
+  assetId        String
+  timestamp      DateTime
+  source         String
+  galaxyScore    Int?
+  altRank        Int?
+  socialVolume   Int?
+  rawText        String?  @db.Text
+  sentimentScore Int?
+  createdAt      DateTime @default(now())
+
+  asset Asset @relation(fields: [assetId], references: [id])
+
+  @@index([assetId, timestamp])
+}
+
+// AI council deliberation session
+model CouncilSession {
+  id               String   @id @default(cuid())
+  assetId          String
+  timestamp        DateTime
+  sentimentScore   Int
+  technicalSignal  String
+  technicalDetails Json?
+  visionAnalysis   String?  @db.Text
+  visionConfidence Decimal? @db.Decimal(3, 2)
+  finalDecision    Decision
+  reasoningLog     String   @db.Text
+  executedTradeId  String?
+  createdAt        DateTime @default(now())
+
+  asset Asset  @relation(fields: [assetId], references: [id])
+  trade Trade? @relation(fields: [executedTradeId], references: [id])
+
+  @@index([assetId, timestamp])
+}
+
+// Trade execution records
+model Trade {
+  id               String      @id @default(cuid())
+  assetId          String
+  councilSessionId String?
+  status           TradeStatus @default(PENDING)
+  side             String      @default("BUY")
+  entryPrice       Decimal     @db.Decimal(18, 8)
+  size             Decimal     @db.Decimal(18, 8)
+  entryTime        DateTime
+  stopLossPrice    Decimal     @db.Decimal(18, 8)
+  takeProfitPrice  Decimal?    @db.Decimal(18, 8)
+  exitPrice        Decimal?    @db.Decimal(18, 8)
+  exitTime         DateTime?
+  pnl              Decimal?    @db.Decimal(18, 8)
+  pnlPercent       Decimal?    @db.Decimal(8, 4)
+  exitReason       String?
+  krakenOrderId    String?
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+
+  asset           Asset            @relation(fields: [assetId], references: [id])
+  councilSessions CouncilSession[]
 }

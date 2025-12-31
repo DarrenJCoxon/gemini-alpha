@@ -1,11 +1,9 @@
-version: '3.8'
-
 services:
   postgres:
     image: postgres:15
     container_name: contrarian-ai-postgres
     ports:
-      - "5432:5432"
+      - "5433:5432"
     environment:
       POSTGRES_USER: contrarian
       POSTGRES_PASSWORD: contrarian_dev
