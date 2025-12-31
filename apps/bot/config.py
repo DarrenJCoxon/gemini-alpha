@@ -209,6 +209,71 @@ def get_gemini_flash_model():
 
 
 @dataclass
+class GeminiVisionConfig:
+    """
+    Google Gemini Pro Vision configuration for Chart Analysis (Story 2.3).
+
+    Uses the google-generativeai library with Gemini Pro for
+    visual chart pattern recognition and scam wick detection.
+    """
+
+    api_key: Optional[str] = field(
+        default_factory=lambda: os.getenv("GOOGLE_AI_API_KEY")
+    )
+    # Gemini Pro model for vision analysis (better for complex visual tasks)
+    model_name: str = field(
+        default_factory=lambda: os.getenv("GEMINI_VISION_MODEL", "gemini-1.5-pro")
+    )
+    # Very low temperature for consistent chart analysis
+    temperature: float = field(
+        default_factory=lambda: float(os.getenv("GEMINI_VISION_TEMPERATURE", "0.2"))
+    )
+    # Maximum tokens for vision responses
+    max_output_tokens: int = field(
+        default_factory=lambda: int(os.getenv("GEMINI_VISION_MAX_TOKENS", "2048"))
+    )
+
+    def is_configured(self) -> bool:
+        """Check if Gemini Vision API is properly configured."""
+        return self.api_key is not None and len(self.api_key) > 0
+
+
+def get_gemini_pro_vision_model():
+    """
+    Get configured Gemini Pro model for vision/chart analysis.
+
+    Uses google-generativeai library with Gemini Pro for
+    complex visual chart pattern recognition in the Vision Agent.
+
+    Story 2.3: Vision Agent & Chart Generation
+
+    Returns:
+        Configured GenerativeModel instance
+
+    Raises:
+        ValueError: If GOOGLE_AI_API_KEY is not set
+    """
+    import google.generativeai as genai
+
+    vision_config = GeminiVisionConfig()
+
+    if not vision_config.is_configured():
+        raise ValueError("GOOGLE_AI_API_KEY not set")
+
+    genai.configure(api_key=vision_config.api_key)
+
+    # Gemini Pro - optimized for complex visual analysis
+    model = genai.GenerativeModel(
+        model_name=vision_config.model_name,
+        generation_config={
+            "temperature": vision_config.temperature,
+            "max_output_tokens": vision_config.max_output_tokens,
+        }
+    )
+    return model
+
+
+@dataclass
 class Config:
     """Main application configuration."""
 
@@ -219,6 +284,7 @@ class Config:
     scheduler: SchedulerConfig = field(default_factory=SchedulerConfig)
     vertex_ai: VertexAIConfig = field(default_factory=VertexAIConfig)
     gemini: GeminiConfig = field(default_factory=GeminiConfig)
+    gemini_vision: GeminiVisionConfig = field(default_factory=GeminiVisionConfig)
     web_url: str = field(default_factory=lambda: os.getenv("WEB_URL", ""))
     debug: bool = field(
         default_factory=lambda: os.getenv("DEBUG", "").lower() == "true"

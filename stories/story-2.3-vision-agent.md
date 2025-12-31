@@ -1,6 +1,6 @@
 # Story 2.3: Vision Agent & Chart Generation
 
-**Status:** approved
+**Status:** Done
 **Epic:** 2 - Council of AI Agents (LangGraph)
 **Priority:** High
 
@@ -821,3 +821,278 @@ matplotlib.use('Agg')  # Non-interactive backend
 - Handle timezone issues in timestamps
 - Handle Gemini Vision API rate limits
 - Handle malformed image data
+
+---
+
+## Dev Agent Record
+
+- Implementation Date: 2025-12-31
+- All tasks completed: Yes
+- All tests passing: Yes
+- Test suite executed: Yes
+- CSRF protection validated: N/A (backend Python bot, no web API routes)
+- Files Changed: 8
+
+### Complete File List:
+
+**Files Created:** 5
+- apps/bot/services/chart_generator.py - Chart generation service with mplfinance
+- apps/bot/services/vision_prompts.py - Vision analysis prompts for pattern recognition
+- apps/bot/services/vision_utils.py - JSON response parsing utilities
+- apps/bot/tests/test_chart_generator.py - 22 unit tests for chart generation (pytest)
+- apps/bot/tests/test_vision.py - 33 unit tests for vision analysis (pytest)
+- apps/bot/scripts/test_vision.py - Verification script for manual testing
+
+**Files Modified:** 3
+- apps/bot/requirements.txt - Added mplfinance, matplotlib, Pillow dependencies
+- apps/bot/config.py - Added GeminiVisionConfig and get_gemini_pro_vision_model function
+- apps/bot/nodes/vision.py - Replaced stub with full implementation
+
+**VERIFICATION: New implementation files = 4 | Test files = 2 | Tests cover all new code: Yes**
+
+### Test Execution Summary:
+
+- Test command: `python -m pytest tests/test_chart_generator.py tests/test_vision.py -v`
+- Total tests: 55
+- Passing: 55
+- Failing: 0
+- Execution time: 2.87s
+
+**Test files created and verified:**
+1. apps/bot/tests/test_chart_generator.py - [X] Created (pytest), [X] Passing (22 tests)
+2. apps/bot/tests/test_vision.py - [X] Created (pytest), [X] Passing (33 tests)
+
+**Test output excerpt:**
+```
+============================= test session starts ==============================
+platform darwin -- Python 3.12.6, pytest-9.0.2, pluggy-1.6.0
+plugins: langsmith-0.5.2, anyio-4.12.0, asyncio-1.3.0, cov-7.0.0
+collected 55 items
+
+tests/test_chart_generator.py::TestPrepareChartData::test_valid_data PASSED
+tests/test_chart_generator.py::TestPrepareChartData::test_datetime_index PASSED
+tests/test_chart_generator.py::TestPrepareChartData::test_sorted_by_timestamp PASSED
+tests/test_chart_generator.py::TestPrepareChartData::test_numeric_types PASSED
+tests/test_chart_generator.py::TestPrepareChartData::test_empty_list_raises_error PASSED
+tests/test_chart_generator.py::TestPrepareChartData::test_minimal_candles PASSED
+tests/test_chart_generator.py::TestPrepareChartData::test_string_numbers_converted PASSED
+tests/test_chart_generator.py::TestGenerateChartImage::test_returns_bytes PASSED
+tests/test_chart_generator.py::TestGenerateChartImage::test_png_magic_bytes PASSED
+tests/test_chart_generator.py::TestGenerateChartImage::test_generate_with_fewer_candles PASSED
+tests/test_chart_generator.py::TestGenerateChartImage::test_truncates_to_num_candles PASSED
+tests/test_chart_generator.py::TestGenerateChartImage::test_without_volume PASSED
+tests/test_chart_generator.py::TestGenerateChartImage::test_without_sma PASSED
+tests/test_chart_generator.py::TestGenerateChartImage::test_jpeg_format PASSED
+tests/test_chart_generator.py::TestGenerateChartImage::test_custom_dpi PASSED
+tests/test_chart_generator.py::TestGenerateChartImage::test_empty_candles_raises_error PASSED
+tests/test_chart_generator.py::TestGenerateChartImage::test_few_candles_no_sma PASSED
+tests/test_chart_generator.py::TestSaveChartToFile::test_save_to_temp_file PASSED
+tests/test_chart_generator.py::TestSaveChartToFile::test_returns_filepath PASSED
+tests/test_chart_generator.py::TestContrarianStyle::test_style_is_dict PASSED
+tests/test_chart_generator.py::TestContrarianStyle::test_style_has_required_keys PASSED
+tests/test_chart_generator.py::TestContrarianStyle::test_dark_theme_colors PASSED
+tests/test_vision.py::TestVisionPrompts::test_system_prompt_exists PASSED
+tests/test_vision.py::TestVisionPrompts::test_system_prompt_contains_patterns PASSED
+tests/test_vision.py::TestVisionPrompts::test_system_prompt_contains_json_format PASSED
+tests/test_vision.py::TestVisionPrompts::test_user_prompt_template_exists PASSED
+tests/test_vision.py::TestVisionPrompts::test_build_vision_prompt_basic PASSED
+tests/test_vision.py::TestVisionPrompts::test_build_vision_prompt_without_sma PASSED
+tests/test_vision.py::TestVisionPrompts::test_build_vision_prompt_custom_timeframe PASSED
+tests/test_vision.py::TestParseVisionResponse::test_parse_valid_json PASSED
+tests/test_vision.py::TestParseVisionResponse::test_parse_json_with_markdown PASSED
+tests/test_vision.py::TestParseVisionResponse::test_parse_scam_wick_detected PASSED
+tests/test_vision.py::TestParseVisionResponse::test_parse_bearish_patterns PASSED
+tests/test_vision.py::TestParseVisionResponse::test_parse_invalid_json PASSED
+tests/test_vision.py::TestParseVisionResponse::test_parse_partial_json PASSED
+tests/test_vision.py::TestParseVisionResponse::test_parse_empty_patterns PASSED
+tests/test_vision.py::TestValidateVisionResult::test_valid_result PASSED
+tests/test_vision.py::TestValidateVisionResult::test_invalid_recommendation PASSED
+tests/test_vision.py::TestValidateVisionResult::test_scam_wick_detected PASSED
+tests/test_vision.py::TestValidateVisionResult::test_low_confidence PASSED
+tests/test_vision.py::TestValidateVisionResult::test_borderline_confidence PASSED
+tests/test_vision.py::TestValidateVisionResult::test_multiple_failures PASSED
+tests/test_vision.py::TestExtractKeyPatterns::test_reversal_patterns_detected PASSED
+tests/test_vision.py::TestExtractKeyPatterns::test_warning_patterns_detected PASSED
+tests/test_vision.py::TestExtractKeyPatterns::test_mixed_patterns PASSED
+tests/test_vision.py::TestExtractKeyPatterns::test_no_patterns PASSED
+tests/test_vision.py::TestExtractKeyPatterns::test_wyckoff_spring_detection PASSED
+tests/test_vision.py::TestExtractKeyPatterns::test_death_cross_detection PASSED
+tests/test_vision.py::TestVisionNode::test_minimum_candle_requirement PASSED
+tests/test_vision.py::TestVisionNode::test_vision_node_integration_with_mocks PASSED
+tests/test_vision.py::TestVisionNode::test_vision_node_scam_wick_detection PASSED
+tests/test_vision.py::TestVisionNode::test_vision_node_api_error PASSED
+tests/test_vision.py::TestVisionNode::test_vision_node_chart_generation_error PASSED
+tests/test_vision.py::TestVisionNode::test_vision_node_insufficient_candles PASSED
+tests/test_vision.py::TestVisionNode::test_vision_node_invalid_json_response PASSED
+
+======================= 55 passed, 23 warnings in 2.87s ========================
+```
+
+### Verification Script Summary:
+```
+============================================================
+Vision Agent Verification Script
+Story 2.3: Vision Agent & Chart Generation
+============================================================
+
+[1] Generating test candles...
+    Generated 100 candles
+    Price range: $83.00 - $129.00
+
+[2] Generating chart image...
+    Image size: 74,506 bytes
+    PNG validation: PASSED
+
+[3] Saving chart to /tmp/vision_test_chart.png...
+    Saved successfully!
+
+[4] Testing prompt generation...
+    User prompt length: 185 chars
+    System prompt length: 1712 chars
+    Prompt validation: PASSED
+
+[5] Testing response parsing...
+    Parsed patterns: ['Double Bottom', 'Hammer']
+    Confidence: 75
+    Recommendation: VALID
+    Is Valid: True
+
+    Scam wick test:
+    Scam detected: True
+    Is Valid: False
+    Response parsing: PASSED
+
+============================================================
+ALL TESTS PASSED!
+============================================================
+```
+
+### CSRF Protection:
+- State-changing routes: None (Python bot backend, not web API)
+- Protection implemented: N/A
+- Protection tested: N/A
+
+### Implementation Notes:
+
+1. **Chart Generation**: Implemented with mplfinance using Agg backend for headless server environments. CONTRARIAN_STYLE dark theme matches the UI design.
+
+2. **Vision Prompts**: Created comprehensive system prompt focusing on reversal patterns (Double Bottom, Wyckoff Spring) and warning patterns (Head and Shoulders, Death Cross). Includes scam wick detection instructions.
+
+3. **Response Parsing**: Robust JSON parsing with markdown cleanup and safe defaults for malformed responses. validate_vision_result() checks recommendation, scam_wick_detected, and confidence_score >= 30.
+
+4. **Vision Node**: Full implementation replacing the stub. Handles insufficient candles, chart generation, Vision API calls, response parsing, and error handling. Optional debug chart saving via CHART_DEBUG_DIR environment variable.
+
+5. **Configuration**: Added GeminiVisionConfig dataclass with configurable model (default: gemini-1.5-pro), temperature (0.2), and max tokens (2048).
+
+6. **Test Strategy**: Comprehensive tests cover chart data preparation, image generation, prompt building, response parsing, result validation, pattern extraction, and full vision node flow with mocked dependencies.
+
+### Acceptance Criteria Validation:
+- [X] AC1: mplfinance generates static PNG of 100 candles (15m timeframe)
+- [X] AC2: Image sent to Gemini Pro Vision model
+- [X] AC3: Prompt instructs AI to look for specific patterns (Double Bottom, Wyckoff Spring, Support retests)
+- [X] AC4: Output includes text description + confidence score (0-100)
+
+---
+
+## QA Results
+
+### Review Date: 2025-12-31
+### Reviewer: QA Story Validator Agent
+
+#### Acceptance Criteria Validation:
+
+1. **AC1: mplfinance generates static PNG of last 100 candles (15m timeframe)**: PASS
+   - Evidence: `apps/bot/services/chart_generator.py` lines 96-177 implement `generate_chart_image()` function using mplfinance
+   - PNG validation confirmed by `test_png_magic_bytes` test and verification script output showing "74,039 bytes" with valid PNG magic bytes
+   - Default `num_candles=100` parameter correctly limits candles displayed
+   - Notes: Chart generation includes dark "Institutional Dark" theme, volume subplot, and optional SMA 50/200 overlays
+
+2. **AC2: Image passed to Gemini Pro Vision model**: PASS
+   - Evidence: `apps/bot/nodes/vision.py` lines 117-124 pass base64-encoded PNG to `model.generate_content()` with mime_type "image/png"
+   - `apps/bot/config.py` lines 241-273 properly configure `get_gemini_pro_vision_model()` function returning Gemini 1.5 Pro model
+   - Notes: Model configured with temperature=0.2 for consistent analysis, max_output_tokens=2048
+
+3. **AC3: Prompt instructs AI to look for Double Bottom, Wyckoff Spring, support retests, scam wicks**: PASS
+   - Evidence: `apps/bot/services/vision_prompts.py` lines 16-60 define `VISION_SYSTEM_PROMPT` containing:
+     - "Double Bottom / W-Pattern" (line 23)
+     - "Wyckoff Spring (price dips below support then rapidly recovers)" (line 27)
+     - "Support retests" mentioned in context and support level identification
+     - "Scam Wick Detection: Extremely long wicks with no follow-through" (line 38)
+   - Notes: Prompt also includes other reversal patterns (Inverse Head and Shoulders, Hammer) and warning patterns (Head and Shoulders, Death Cross)
+
+4. **AC4: Output includes text description + confidence score (0-100)**: PASS
+   - Evidence: `apps/bot/services/vision_utils.py` lines 14-75 parse response into dict containing:
+     - `confidence_score: int` (0-100) at line 59
+     - `description: str` at line 60
+   - `apps/bot/core/state.py` lines 85-101 define `VisionAnalysis` TypedDict with these fields
+   - Notes: Output also includes `patterns_detected`, `is_valid`, `scam_wick_detected`, and `recommendation` fields
+
+#### Code Quality Assessment:
+
+- **Readability**: Excellent. All modules have comprehensive docstrings, clear function signatures with type hints, and well-organized code structure. Module-level docstrings explain purpose and features.
+
+- **Standards Compliance**: Excellent. Code follows Python best practices, uses proper typing (TypedDict, Optional, List, Dict), and maintains consistent code style across all files.
+
+- **Performance**: Good.
+  - Memory cleanup properly implemented with `plt.close(fig)` at line 175 of chart_generator.py
+  - Uses `io.BytesIO()` for in-memory image generation
+  - Matplotlib Agg backend configured for headless server environments (line 17-18)
+
+- **Security**: Good.
+  - API keys loaded from environment variables, not hardcoded
+  - Base64 image data not logged (only byte length logged at line 89)
+  - Error messages do not expose sensitive information
+
+- **CSRF Protection**: N/A - This is a Python backend bot service with no web API routes. Not applicable.
+
+- **Testing**: Excellent.
+  - Test files present: Yes
+    - `/Users/darrencoxon/Dropbox/Coxon_team_folder/Coding_2026/gemini-trading-bot/apps/bot/tests/test_chart_generator.py` (22 tests)
+    - `/Users/darrencoxon/Dropbox/Coxon_team_folder/Coding_2026/gemini-trading-bot/apps/bot/tests/test_vision.py` (33 tests)
+  - Tests executed: Yes - verified by running `python -m pytest tests/test_chart_generator.py tests/test_vision.py -v`
+  - All tests passing: Yes - 55 passed in 2.96s
+  - Test coverage includes:
+    - Chart data preparation edge cases (empty data, minimal data, string conversion)
+    - PNG/JPEG image generation with various options
+    - Response parsing (valid JSON, markdown-wrapped, invalid JSON, partial JSON)
+    - Scam wick detection logic
+    - Vision node integration with mocked API calls
+    - Insufficient candle handling
+
+#### Edge Cases Verified:
+
+1. **< 50 candles handling**: PASS
+   - `vision_node()` checks `len(candles) < MIN_CANDLES_FOR_CHART` (50) and returns early with `is_valid: False`
+   - Test: `test_vision_node_insufficient_candles` confirms chart generation is skipped
+
+2. **Memory cleanup**: PASS
+   - `plt.close(fig)` called at line 175 after saving image to buffer
+   - Comment explicitly notes "important for long-running process"
+
+3. **Vision parsing handles markdown code blocks**: PASS
+   - `parse_vision_response()` strips `\`\`\`json` and `\`\`\`` markers (lines 42-47)
+   - Test: `test_parse_json_with_markdown` validates this behavior
+
+4. **Scam wick detection properly flags invalid signals**: PASS
+   - `validate_vision_result()` returns False if `scam_wick_detected` is True
+   - Test: `test_vision_node_scam_wick_detection` confirms this behavior
+
+5. **is_valid logic combines recommendation, scam_wick, and confidence**: PASS
+   - `validate_vision_result()` at lines 78-97 checks all three conditions:
+     ```python
+     return (
+         parsed.get("recommendation") == "VALID" and
+         not parsed.get("scam_wick_detected", False) and
+         parsed.get("confidence_score", 0) >= 30
+     )
+     ```
+   - Multiple tests verify boundary conditions (borderline confidence at 30, low confidence at 25)
+
+#### Refactoring Performed:
+None required. Code quality is high and implementation is clean.
+
+#### Issues Identified:
+None. All acceptance criteria met, tests pass, and code quality is excellent.
+
+#### Final Decision:
+All Acceptance Criteria validated. Tests verified (55/55 passing). CSRF protection not applicable (Python bot backend). Story marked as DONE.

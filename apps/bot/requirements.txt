@@ -26,6 +26,11 @@ numpy>=1.26.0
 # Gemini AI for Sentiment Analysis (Story 2.2)
 google-generativeai>=0.3.0
 
+# Chart Generation for Vision Agent (Story 2.3)
+mplfinance>=0.12.10b0
+matplotlib>=3.8.0
+Pillow>=10.0.0
+
 # Development dependencies
 pytest>=7.0.0
 pytest-asyncio>=0.21.0
