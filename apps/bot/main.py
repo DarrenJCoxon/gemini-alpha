@@ -5,18 +5,22 @@ This module initializes the FastAPI application and sets up the scheduler
 for automated trading operations.
 
 Story 1.3: Added Kraken ingestion scheduler and manual trigger endpoint.
+Story 2.1: Added LangGraph Council integration for AI-powered trading decisions.
 """
 
 import logging
 import os
 from contextlib import asynccontextmanager
-from typing import Any, AsyncGenerator
+from typing import Any, AsyncGenerator, Dict, List, Optional
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 
 from config import get_config
+from core.graph import get_council_graph
+from core.state import create_initial_state
 from database import init_db
 from services.kraken import close_kraken_client, get_kraken_client
 from services.scheduler import get_scheduler, ingest_kraken_data
@@ -178,3 +182,168 @@ async def test_kraken_connection() -> dict[str, Any]:
             status_code=503,
             detail=f"Connection test failed: {str(e)}",
         )
+
+
+# =============================================================================
+# Story 2.1: LangGraph Council Endpoints
+# =============================================================================
+
+
+class CouncilSessionRequest(BaseModel):
+    """Request model for running a Council session."""
+
+    asset_symbol: str
+    # TODO: In future stories, these will be loaded from the database
+    # For now, we accept optional test data
+    candles_data: Optional[List[Dict[str, Any]]] = None
+    sentiment_data: Optional[List[Dict[str, Any]]] = None
+
+
+class CouncilSessionResponse(BaseModel):
+    """Response model for Council session results."""
+
+    asset_symbol: str
+    technical_analysis: Optional[Dict[str, Any]] = None
+    sentiment_analysis: Optional[Dict[str, Any]] = None
+    vision_analysis: Optional[Dict[str, Any]] = None
+    final_decision: Optional[Dict[str, Any]] = None
+    error: Optional[str] = None
+
+
+@app.post("/api/council/session", response_model=CouncilSessionResponse)
+async def run_council_session(request: CouncilSessionRequest) -> CouncilSessionResponse:
+    """
+    Run a Council of AI Agents session for trading decision.
+
+    Story 2.1: LangGraph State Machine Setup
+
+    This endpoint invokes the LangGraph state machine with the provided
+    asset data and returns the synthesized trading decision.
+
+    Args:
+        request: CouncilSessionRequest containing asset_symbol and optional data
+
+    Returns:
+        CouncilSessionResponse with all agent analyses and final decision
+
+    Note:
+        Currently uses stub agent implementations (Story 2.1).
+        Full agent logic will be implemented in Stories 2.2-2.4.
+
+    Future Enhancement:
+        - Load candles_data from database (Kraken OHLCV)
+        - Load sentiment_data from database (LunarCrush/Social)
+        - Add async execution for better performance
+    """
+    logger.info(f"Council session requested for {request.asset_symbol}")
+
+    try:
+        # Get the cached Council graph
+        council_graph = get_council_graph()
+
+        # Create initial state
+        # TODO: In future stories, load data from database instead of request
+        initial_state = create_initial_state(
+            asset_symbol=request.asset_symbol,
+            candles_data=request.candles_data,  # type: ignore
+            sentiment_data=request.sentiment_data,
+        )
+
+        # Run the graph (synchronous for now)
+        # TODO: Consider async execution in future stories
+        final_state = council_graph.invoke(initial_state)
+
+        logger.info(
+            f"Council session completed for {request.asset_symbol}: "
+            f"{final_state.get('final_decision', {}).get('action', 'N/A')}"
+        )
+
+        # Convert datetime to ISO string for JSON serialization
+        final_decision = final_state.get("final_decision")
+        if final_decision and "timestamp" in final_decision:
+            final_decision = dict(final_decision)
+            final_decision["timestamp"] = final_decision["timestamp"].isoformat()
+
+        return CouncilSessionResponse(
+            asset_symbol=final_state["asset_symbol"],
+            technical_analysis=final_state.get("technical_analysis"),
+            sentiment_analysis=final_state.get("sentiment_analysis"),
+            vision_analysis=final_state.get("vision_analysis"),
+            final_decision=final_decision,
+            error=final_state.get("error"),
+        )
+
+    except Exception as e:
+        logger.error(f"Council session failed for {request.asset_symbol}: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Council session failed: {str(e)}",
+        )
+
+
+@app.get("/api/council/test")
+async def test_council_graph() -> dict[str, Any]:
+    """
+    Test the Council graph with dummy data.
+
+    Story 2.1: LangGraph State Machine Setup
+
+    This endpoint is for development testing of the graph flow.
+    It creates a test state with sample data and runs the graph.
+
+    Returns:
+        Dict containing test results and graph status.
+    """
+    from datetime import datetime, timezone
+
+    logger.info("Council graph test initiated")
+
+    try:
+        # Get the cached graph
+        council_graph = get_council_graph()
+
+        # Create test state
+        test_state = create_initial_state(
+            asset_symbol="SOLUSD",
+            candles_data=[
+                {
+                    "timestamp": datetime.now(timezone.utc),
+                    "open": 100.0,
+                    "high": 105.0,
+                    "low": 98.0,
+                    "close": 103.0,
+                    "volume": 10000.0
+                }
+            ],
+            sentiment_data=[
+                {"text": "Test sentiment", "source": "test", "score": 0.5}
+            ],
+        )
+
+        # Run graph
+        result = council_graph.invoke(test_state)
+
+        # Extract decision for response
+        decision = result.get("final_decision", {})
+
+        return {
+            "status": "success",
+            "graph_compiled": True,
+            "test_asset": result["asset_symbol"],
+            "decision_action": decision.get("action"),
+            "decision_confidence": decision.get("confidence"),
+            "all_nodes_executed": all([
+                result.get("technical_analysis") is not None,
+                result.get("sentiment_analysis") is not None,
+                result.get("vision_analysis") is not None,
+                result.get("final_decision") is not None,
+            ]),
+        }
+
+    except Exception as e:
+        logger.error(f"Council graph test failed: {e}")
+        return {
+            "status": "error",
+            "graph_compiled": False,
+            "error": str(e),
+        }

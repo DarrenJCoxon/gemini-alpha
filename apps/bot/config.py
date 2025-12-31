@@ -115,6 +115,37 @@ class SchedulerConfig:
 
 
 @dataclass
+class VertexAIConfig:
+    """Google Vertex AI configuration for LangGraph agents (Story 2.1)."""
+
+    project_id: Optional[str] = field(
+        default_factory=lambda: os.getenv("GOOGLE_CLOUD_PROJECT")
+    )
+    location: str = field(
+        default_factory=lambda: os.getenv("VERTEX_AI_LOCATION", "us-central1")
+    )
+    credentials_path: Optional[str] = field(
+        default_factory=lambda: os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+    )
+    # Model selection for agents
+    model_name: str = field(
+        default_factory=lambda: os.getenv("VERTEX_AI_MODEL", "gemini-1.5-pro")
+    )
+    # Temperature for agent responses (lower = more deterministic)
+    temperature: float = field(
+        default_factory=lambda: float(os.getenv("VERTEX_AI_TEMPERATURE", "0.1"))
+    )
+    # Maximum tokens for responses
+    max_output_tokens: int = field(
+        default_factory=lambda: int(os.getenv("VERTEX_AI_MAX_TOKENS", "2048"))
+    )
+
+    def is_configured(self) -> bool:
+        """Check if Vertex AI is properly configured."""
+        return self.project_id is not None and len(self.project_id) > 0
+
+
+@dataclass
 class Config:
     """Main application configuration."""
 
@@ -123,6 +154,7 @@ class Config:
     lunarcrush: LunarCrushConfig = field(default_factory=LunarCrushConfig)
     social: SocialConfig = field(default_factory=SocialConfig)
     scheduler: SchedulerConfig = field(default_factory=SchedulerConfig)
+    vertex_ai: VertexAIConfig = field(default_factory=VertexAIConfig)
     web_url: str = field(default_factory=lambda: os.getenv("WEB_URL", ""))
     debug: bool = field(
         default_factory=lambda: os.getenv("DEBUG", "").lower() == "true"
