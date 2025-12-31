@@ -1,10 +1,12 @@
 """
 APScheduler configuration for the Contrarian AI Trading Bot.
 
-This module provides the scheduler setup and the main ingestion job
-that fetches OHLCV data from Kraken at 15-minute intervals.
+This module provides the scheduler setup and the main ingestion jobs:
+- OHLCV data fetching from Kraken at 15-minute intervals (Story 1.3)
+- Sentiment data fetching from LunarCrush/socials at 15-minute intervals (Story 1.4)
 
 Based on Story 1.3: Kraken Data Ingestor requirements.
+Based on Story 1.4: Sentiment Ingestor requirements.
 """
 
 import asyncio
@@ -19,8 +21,14 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from config import get_config
 from database import get_session_maker
-from models import Asset, Candle
+from models import Asset, Candle, SentimentLog
 from services.kraken import get_kraken_client, KrakenClient
+from services.sentiment import (
+    SentimentService,
+    get_sentiment_service,
+    AssetRotator,
+    save_sentiment_log,
+)
 
 # Configure logging
 logger = logging.getLogger("kraken_ingestor")
@@ -275,6 +283,146 @@ async def ingest_kraken_data() -> dict[str, Any]:
     return stats
 
 
+# Sentiment ingestion logger
+sentiment_logger = logging.getLogger("sentiment_ingestor")
+
+# Global asset rotator for LunarCrush rate limiting
+_asset_rotator: AssetRotator | None = None
+
+
+async def ingest_sentiment_data() -> dict[str, Any]:
+    """
+    Main ingestion job function for sentiment data.
+
+    Fetches sentiment for active assets and saves to database.
+    Uses rotation strategy to stay within LunarCrush API limits.
+
+    Returns:
+        Dict with ingestion statistics
+    """
+    start_time = datetime.now(timezone.utc)
+    sentiment_logger.info(f"Starting sentiment ingestion at {start_time.isoformat()}")
+
+    config = get_config()
+    sentiment_service = get_sentiment_service()
+
+    stats = {
+        "start_time": start_time.isoformat(),
+        "total_assets": 0,
+        "successful": 0,
+        "failed": 0,
+        "lunarcrush_calls": 0,
+        "errors": [],
+    }
+
+    try:
+        # Get async session
+        session_maker = get_session_maker()
+        async with session_maker() as session:
+            # Fetch active assets
+            assets = await get_active_assets(session)
+            stats["total_assets"] = len(assets)
+
+            if not assets:
+                sentiment_logger.warning("No active assets found in database")
+                return stats
+
+            # Initialize or update rotator
+            global _asset_rotator
+            if _asset_rotator is None:
+                _asset_rotator = AssetRotator(
+                    assets,
+                    num_groups=config.lunarcrush.rotation_groups,
+                )
+
+            # Get current group for LunarCrush (to respect API limits)
+            current_group = _asset_rotator.get_current_group()
+            sentiment_logger.info(
+                f"Processing group {_asset_rotator.current_group_index + 1}/"
+                f"{config.lunarcrush.rotation_groups} "
+                f"({len(current_group)} assets for LunarCrush)"
+            )
+
+            # Check remaining LunarCrush quota
+            remaining_quota = sentiment_service.lunarcrush.get_remaining_quota()
+            sentiment_logger.info(f"LunarCrush quota remaining: {remaining_quota}")
+
+            # Process all assets for social data, but only current group for LunarCrush
+            for asset in assets:
+                try:
+                    # Determine if this asset should fetch LunarCrush data
+                    fetch_lunarcrush = asset in current_group
+
+                    # Fetch sentiment from all sources
+                    sentiment = await sentiment_service.fetch_all_sentiment(
+                        asset.symbol,
+                        fetch_lunarcrush=fetch_lunarcrush,
+                        fetch_socials=True,
+                    )
+
+                    if fetch_lunarcrush and sentiment.lunarcrush is not None:
+                        stats["lunarcrush_calls"] += 1
+
+                    # Save to database
+                    await save_sentiment_log(
+                        session,
+                        asset_id=asset.id,
+                        source="aggregated",
+                        sentiment=sentiment,
+                    )
+
+                    stats["successful"] += 1
+
+                except Exception as e:
+                    stats["failed"] += 1
+                    error_msg = f"Error processing {asset.symbol}: {str(e)}"
+                    stats["errors"].append(error_msg)
+                    sentiment_logger.error(error_msg)
+
+                # Small delay between assets
+                await asyncio.sleep(0.1)
+
+            # Commit all changes
+            await session.commit()
+
+            # Advance rotator for next cycle
+            _asset_rotator.advance()
+
+    except Exception as e:
+        error_msg = f"Sentiment ingestion error: {str(e)}"
+        sentiment_logger.error(error_msg)
+        stats["errors"].append(error_msg)
+
+    # Calculate duration
+    end_time = datetime.now(timezone.utc)
+    duration = (end_time - start_time).total_seconds()
+    stats["end_time"] = end_time.isoformat()
+    stats["duration_seconds"] = duration
+
+    # Log summary
+    sentiment_logger.info(
+        f"Sentiment ingestion complete. "
+        f"Success: {stats['successful']}/{stats['total_assets']}, "
+        f"LunarCrush calls: {stats['lunarcrush_calls']}, "
+        f"Duration: {duration:.2f}s"
+    )
+
+    # Log alert if any failures
+    if stats["failed"] > 0:
+        sentiment_logger.warning(
+            f"Sentiment ingestion completed with {stats['failed']} failed assets"
+        )
+
+    # Log critical alert if all failed
+    if stats["total_assets"] > 0 and stats["successful"] == 0:
+        sentiment_logger.critical(
+            "ALERT: Complete sentiment ingestion cycle failure - "
+            "no assets processed successfully"
+        )
+
+    return stats
+
+
 def create_scheduler() -> AsyncIOScheduler:
     """
     Create and configure the APScheduler instance.
@@ -286,7 +434,7 @@ def create_scheduler() -> AsyncIOScheduler:
 
     scheduler = AsyncIOScheduler(timezone=config.scheduler.timezone)
 
-    # Add the Kraken ingestion job
+    # Add the Kraken ingestion job (Story 1.3)
     scheduler.add_job(
         ingest_kraken_data,
         CronTrigger(minute=config.scheduler.ingest_cron_minutes),
@@ -298,6 +446,21 @@ def create_scheduler() -> AsyncIOScheduler:
 
     logger.info(
         f"Scheduler configured with Kraken ingestion at minutes: {config.scheduler.ingest_cron_minutes}"
+    )
+
+    # Add the Sentiment ingestion job (Story 1.4)
+    # Runs at the same 15-minute intervals but slightly offset to avoid conflicts
+    scheduler.add_job(
+        ingest_sentiment_data,
+        CronTrigger(minute=config.scheduler.ingest_cron_minutes),
+        id="sentiment_ingest",
+        name="Sentiment Data Ingestion",
+        replace_existing=True,
+        max_instances=1,  # Prevent overlapping executions
+    )
+
+    sentiment_logger.info(
+        f"Scheduler configured with Sentiment ingestion at minutes: {config.scheduler.ingest_cron_minutes}"
     )
 
     return scheduler

@@ -57,6 +57,47 @@ class KrakenConfig:
 
 
 @dataclass
+class LunarCrushConfig:
+    """LunarCrush API configuration."""
+
+    api_key: Optional[str] = field(
+        default_factory=lambda: os.getenv("LUNARCRUSH_API_KEY")
+    )
+    # Free tier: 300 calls/day, Pro: 10000 calls/day
+    daily_limit: int = field(
+        default_factory=lambda: int(os.getenv("LUNARCRUSH_DAILY_LIMIT", "300"))
+    )
+    # Number of groups for rotation strategy (to stay within API limits)
+    rotation_groups: int = field(
+        default_factory=lambda: int(os.getenv("LUNARCRUSH_ROTATION_GROUPS", "3"))
+    )
+
+
+@dataclass
+class SocialConfig:
+    """Social media API configuration."""
+
+    # Bluesky
+    bluesky_handle: Optional[str] = field(
+        default_factory=lambda: os.getenv("BLUESKY_HANDLE")
+    )
+    bluesky_password: Optional[str] = field(
+        default_factory=lambda: os.getenv("BLUESKY_PASSWORD")
+    )
+
+    # Telegram
+    telegram_api_id: Optional[str] = field(
+        default_factory=lambda: os.getenv("TELEGRAM_API_ID")
+    )
+    telegram_api_hash: Optional[str] = field(
+        default_factory=lambda: os.getenv("TELEGRAM_API_HASH")
+    )
+    telegram_phone: Optional[str] = field(
+        default_factory=lambda: os.getenv("TELEGRAM_PHONE")
+    )
+
+
+@dataclass
 class SchedulerConfig:
     """APScheduler configuration."""
 
@@ -67,6 +108,10 @@ class SchedulerConfig:
     run_on_startup: bool = field(
         default_factory=lambda: os.getenv("RUN_INGESTION_ON_STARTUP", "false").lower() == "true"
     )
+    # Run sentiment ingestion on startup
+    run_sentiment_on_startup: bool = field(
+        default_factory=lambda: os.getenv("RUN_SENTIMENT_ON_STARTUP", "false").lower() == "true"
+    )
 
 
 @dataclass
@@ -75,6 +120,8 @@ class Config:
 
     database: DatabaseConfig = field(default_factory=DatabaseConfig)
     kraken: KrakenConfig = field(default_factory=KrakenConfig)
+    lunarcrush: LunarCrushConfig = field(default_factory=LunarCrushConfig)
+    social: SocialConfig = field(default_factory=SocialConfig)
     scheduler: SchedulerConfig = field(default_factory=SchedulerConfig)
     web_url: str = field(default_factory=lambda: os.getenv("WEB_URL", ""))
     debug: bool = field(
