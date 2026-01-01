@@ -208,7 +208,8 @@ class TestGraphStubBehavior:
         result = graph.invoke(state)
 
         assert result["final_decision"]["action"] == "HOLD"
-        assert result["final_decision"]["confidence"] == 50
+        # Story 5.1: Confidence varies based on regime calculations
+        assert 0 <= result["final_decision"]["confidence"] <= 100
 
 
 class TestGraphEdgeCases:

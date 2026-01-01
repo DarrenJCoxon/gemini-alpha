@@ -2,6 +2,7 @@
 LangGraph State Definitions for the Council of AI Agents.
 
 Story 2.1: LangGraph State Machine Setup
+Story 5.1: Market Regime Filter
 
 This module defines the GraphState TypedDict that carries trading context
 between different AI agents in the decision-making pipeline.
@@ -11,6 +12,10 @@ State Flow:
 
 Each agent receives the full state, processes its designated fields,
 and passes the enriched state to the next agent in the pipeline.
+
+Story 5.1 adds market regime detection to prevent catching falling knives
+in downtrends. The regime is calculated from daily candles and affects
+the thresholds used in the Master Node decision logic.
 """
 
 from datetime import datetime
@@ -120,6 +125,35 @@ class FinalDecision(TypedDict):
     timestamp: datetime
 
 
+class RegimeAnalysisState(TypedDict, total=False):
+    """
+    Market regime analysis state (Story 5.1).
+
+    Contains the results of market regime detection including
+    moving average crossovers and trend strength.
+
+    Attributes:
+        regime: Current market regime - "BULL", "BEAR", or "CHOP"
+        price_vs_200dma: Percentage above/below 200 DMA
+        sma_50: Current 50-period SMA value
+        sma_200: Current 200-period SMA value
+        golden_cross: True if SMA50 > SMA200 (bullish)
+        death_cross: True if SMA50 < SMA200 (bearish)
+        trend_strength: Trend strength 0-100
+        confidence: Detection confidence 0-100
+        reasoning: Human-readable explanation
+    """
+    regime: str                 # "BULL", "BEAR", "CHOP"
+    price_vs_200dma: float
+    sma_50: float
+    sma_200: float
+    golden_cross: bool
+    death_cross: bool
+    trend_strength: float
+    confidence: float
+    reasoning: str
+
+
 class GraphState(TypedDict):
     """
     Main state container for the Council of AI Agents.
@@ -167,6 +201,10 @@ class GraphState(TypedDict):
     vision_analysis: Optional[VisionAnalysis]
     final_decision: Optional[FinalDecision]
 
+    # Market regime fields (Story 5.1)
+    daily_candles: List[Dict[str, Any]]  # Daily OHLCV for regime detection
+    regime_analysis: Optional[RegimeAnalysisState]  # Current market regime
+
     # Error handling
     error: Optional[str]
 
@@ -174,7 +212,8 @@ class GraphState(TypedDict):
 def create_initial_state(
     asset_symbol: str,
     candles_data: Optional[List[CandleData]] = None,
-    sentiment_data: Optional[List[Dict[str, Any]]] = None
+    sentiment_data: Optional[List[Dict[str, Any]]] = None,
+    daily_candles: Optional[List[Dict[str, Any]]] = None
 ) -> GraphState:
     """
     Factory function to create a properly initialized GraphState.
@@ -185,8 +224,9 @@ def create_initial_state(
 
     Args:
         asset_symbol: Trading pair symbol (e.g., "SOLUSD")
-        candles_data: Optional list of OHLCV candle data
+        candles_data: Optional list of OHLCV candle data (15m for technical analysis)
         sentiment_data: Optional list of sentiment entries
+        daily_candles: Optional list of daily OHLCV data (for regime detection - Story 5.1)
 
     Returns:
         GraphState: Initialized state ready for graph invocation
@@ -195,16 +235,19 @@ def create_initial_state(
         state = create_initial_state(
             asset_symbol="BTCUSD",
             candles_data=candles_from_db,
-            sentiment_data=sentiment_from_db
+            sentiment_data=sentiment_from_db,
+            daily_candles=daily_candles_from_kraken
         )
     """
     return GraphState(
         asset_symbol=asset_symbol,
         candles_data=candles_data or [],
         sentiment_data=sentiment_data or [],
+        daily_candles=daily_candles or [],
         technical_analysis=None,
         sentiment_analysis=None,
         vision_analysis=None,
         final_decision=None,
+        regime_analysis=None,
         error=None
     )

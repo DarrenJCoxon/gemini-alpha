@@ -3,6 +3,11 @@ CouncilSession model for the trading bot.
 
 This model mirrors the Prisma CouncilSession model with proper
 camelCase to snake_case mapping using sa_column.
+
+Story 5.1: Added market regime fields for audit trail:
+- market_regime: Current regime (BULL/BEAR/CHOP)
+- regime_confidence: Detection confidence
+- price_vs_200dma: Price position relative to 200 DMA
 """
 
 from datetime import datetime
@@ -79,6 +84,20 @@ class CouncilSession(SQLModel, table=True):
     created_at: datetime = Field(
         default_factory=datetime.utcnow,
         sa_column=Column("createdAt", DateTime, nullable=False),
+    )
+
+    # Market Regime fields (Story 5.1)
+    market_regime: Optional[str] = Field(
+        default=None,
+        sa_column=Column("marketRegime", String(10), nullable=True),
+    )
+    regime_confidence: Optional[int] = Field(
+        default=None,
+        sa_column=Column("regimeConfidence", Integer, nullable=True),
+    )
+    price_vs_200dma: Optional[Decimal] = Field(
+        default=None,
+        sa_column=Column("priceVs200Dma", Numeric(10, 4), nullable=True),
     )
 
     # Relationships
