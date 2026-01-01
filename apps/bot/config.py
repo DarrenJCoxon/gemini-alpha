@@ -47,6 +47,14 @@ class KrakenConfig:
     api_secret: Optional[str] = field(
         default_factory=lambda: os.getenv("KRAKEN_API_SECRET")
     )
+    # Private key for trading operations (Story 3.1)
+    private_key: Optional[str] = field(
+        default_factory=lambda: os.getenv("KRAKEN_PRIVATE_KEY")
+    )
+    # Sandbox mode for testing without real orders (Story 3.1)
+    sandbox_mode: bool = field(
+        default_factory=lambda: os.getenv("KRAKEN_SANDBOX_MODE", "true").lower() == "true"
+    )
     rate_limit_ms: int = field(
         default_factory=lambda: int(os.getenv("KRAKEN_RATE_LIMIT_MS", "500"))
     )
@@ -54,6 +62,26 @@ class KrakenConfig:
     retry_count: int = 3
     retry_min_wait: int = 2
     retry_max_wait: int = 10
+
+    def validate_trading_credentials(self) -> None:
+        """
+        Validate that trading credentials are configured when not in sandbox mode.
+
+        Raises:
+            ValueError: If credentials are missing and sandbox_mode is False
+        """
+        if not self.sandbox_mode:
+            if not self.api_key or not self.api_secret:
+                raise ValueError(
+                    "KRAKEN_API_KEY and KRAKEN_API_SECRET are required when "
+                    "KRAKEN_SANDBOX_MODE is set to 'false'. Cannot execute real "
+                    "trades without valid API credentials."
+                )
+            if not self.private_key:
+                raise ValueError(
+                    "KRAKEN_PRIVATE_KEY is required when KRAKEN_SANDBOX_MODE is "
+                    "set to 'false'. Cannot sign trading orders without private key."
+                )
 
 
 @dataclass

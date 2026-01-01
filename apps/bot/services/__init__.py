@@ -3,6 +3,7 @@ Services module - External API integrations.
 
 This module contains service classes for interacting with:
 - Kraken API (Story 1.3) - OHLCV data fetching
+- Kraken Execution (Story 3.1) - Order execution
 - LunarCrush API (Story 1.4) - Sentiment data
 - Bluesky/Telegram (Story 1.4) - Social media scraping
 - Other external services
@@ -13,6 +14,28 @@ from .kraken import (
     get_kraken_client,
     close_kraken_client,
     SYMBOL_MAP,
+)
+from .kraken_execution import (
+    KrakenExecutionClient,
+    get_kraken_execution_client,
+    close_kraken_execution_client,
+)
+from .execution import (
+    execute_buy,
+    execute_sell,
+    has_open_position,
+    get_open_position,
+    get_all_open_positions,
+    close_position,
+)
+from .exceptions import (
+    ExecutionError,
+    InsufficientFundsError,
+    DuplicatePositionError,
+    RateLimitError,
+    OrderRejectedError,
+    InvalidSymbolError,
+    PositionNotFoundError,
 )
 from .lunarcrush import (
     LunarCrushClient,
@@ -43,11 +66,30 @@ from .scheduler import (
 )
 
 __all__ = [
-    # Kraken client
+    # Kraken client (Story 1.3)
     "KrakenClient",
     "get_kraken_client",
     "close_kraken_client",
     "SYMBOL_MAP",
+    # Kraken execution client (Story 3.1)
+    "KrakenExecutionClient",
+    "get_kraken_execution_client",
+    "close_kraken_execution_client",
+    # Execution service (Story 3.1)
+    "execute_buy",
+    "execute_sell",
+    "has_open_position",
+    "get_open_position",
+    "get_all_open_positions",
+    "close_position",
+    # Execution exceptions (Story 3.1)
+    "ExecutionError",
+    "InsufficientFundsError",
+    "DuplicatePositionError",
+    "RateLimitError",
+    "OrderRejectedError",
+    "InvalidSymbolError",
+    "PositionNotFoundError",
     # LunarCrush client
     "LunarCrushClient",
     "MockLunarCrushClient",

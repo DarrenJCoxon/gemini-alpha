@@ -295,11 +295,13 @@ async def run_council_cycle() -> dict[str, Any]:
     Run council decision cycle for all active assets.
 
     Story 2.4: Master Node & Signal Logging
+    Story 3.1: Kraken Order Execution Service
 
     Called every 15 minutes by scheduler. Processes each active asset
     through the Council of AI Agents and logs decisions to database.
 
-    Note: Paper Trading Mode - NO actual trade execution.
+    BUY signals trigger execute_buy() via the execution service.
+    In sandbox mode, orders are logged but not executed on Kraken.
 
     Returns:
         Dict with cycle statistics
@@ -312,11 +314,18 @@ async def run_council_cycle() -> dict[str, Any]:
         get_active_assets as load_active_assets,
     )
     from services.session_logger import log_council_session
+    from services.execution import execute_buy, has_open_position
+    from services.kraken_execution import get_kraken_execution_client
 
     start_time = datetime.now(timezone.utc)
     council_logger.info(f"\n{'='*60}")
     council_logger.info(f"[Cycle] Starting council cycle at {start_time.isoformat()}")
     council_logger.info(f"{'='*60}")
+
+    # Check execution mode
+    exec_client = get_kraken_execution_client()
+    exec_mode = "SANDBOX" if exec_client.is_sandbox else "LIVE"
+    council_logger.info(f"[Cycle] Execution mode: {exec_mode}")
 
     stats = {
         "start_time": start_time.isoformat(),
@@ -326,8 +335,13 @@ async def run_council_cycle() -> dict[str, Any]:
         "buy_signals": 0,
         "sell_signals": 0,
         "hold_signals": 0,
+        "orders_executed": 0,
+        "orders_blocked": 0,
         "errors": [],
     }
+
+    # Default position size in USD (can be configured)
+    default_position_size_usd = 100.0
 
     try:
         # Get the cached Council graph
@@ -378,7 +392,7 @@ async def run_council_cycle() -> dict[str, Any]:
                     council_logger.info(f"[Cycle] Running council for {asset.symbol}...")
                     final_state = council_graph.invoke(initial_state)
 
-                    # Log session to database (Paper Trading - no trade execution)
+                    # Log session to database
                     await log_council_session(final_state, asset.id, session=session)
 
                     # Extract decision for stats
@@ -392,15 +406,52 @@ async def run_council_cycle() -> dict[str, Any]:
 
                     # Update stats
                     stats["processed"] += 1
+
                     if action == "BUY":
                         stats["buy_signals"] += 1
-                        council_logger.info(
-                            f"[Cycle] BUY signal logged - Paper Trading mode (no execution)"
-                        )
+
+                        # Story 3.1: Check for existing position before executing
+                        if await has_open_position(asset.id, session):
+                            council_logger.info(
+                                f"[Cycle] BUY blocked for {asset.symbol} - "
+                                f"open position already exists"
+                            )
+                            stats["orders_blocked"] += 1
+                        else:
+                            # Extract stop loss from decision if available
+                            stop_loss_price = decision.get("stop_loss_price")
+
+                            # Execute buy order via execution service
+                            council_logger.info(
+                                f"[Cycle] Executing BUY for {asset.symbol} "
+                                f"(${default_position_size_usd:.2f} USD)..."
+                            )
+
+                            success, error, trade = await execute_buy(
+                                symbol=asset.symbol,
+                                amount_usd=default_position_size_usd,
+                                stop_loss_price=stop_loss_price,
+                                client=exec_client,
+                                session=session,
+                            )
+
+                            if success:
+                                stats["orders_executed"] += 1
+                                council_logger.info(
+                                    f"[Cycle] [{exec_mode}] BUY order executed: "
+                                    f"Trade ID {trade.id if trade else 'N/A'}"
+                                )
+                            else:
+                                stats["orders_blocked"] += 1
+                                council_logger.warning(
+                                    f"[Cycle] BUY order failed for {asset.symbol}: {error}"
+                                )
+
                     elif action == "SELL":
                         stats["sell_signals"] += 1
                         council_logger.info(
-                            f"[Cycle] SELL signal logged - Paper Trading mode (no execution)"
+                            f"[Cycle] SELL signal logged for {asset.symbol} - "
+                            f"position management handled by Story 3.3"
                         )
                     else:
                         stats["hold_signals"] += 1
@@ -427,7 +478,11 @@ async def run_council_cycle() -> dict[str, Any]:
         f"[Cycle] Processed: {stats['processed']}/{stats['total_assets']}, "
         f"Skipped: {stats['skipped']}, "
         f"BUY: {stats['buy_signals']}, SELL: {stats['sell_signals']}, "
-        f"HOLD: {stats['hold_signals']}, "
+        f"HOLD: {stats['hold_signals']}"
+    )
+    council_logger.info(
+        f"[Cycle] Orders: Executed={stats['orders_executed']}, "
+        f"Blocked={stats['orders_blocked']}, "
         f"Duration: {duration:.2f}s"
     )
     council_logger.info(f"{'='*60}\n")
