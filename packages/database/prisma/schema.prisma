@@ -28,6 +28,12 @@ enum TradeStatus {
   CANCELLED
 }
 
+enum SystemStatus {
+  ACTIVE
+  PAUSED
+  EMERGENCY_STOP
+}
+
 // =============================================================================
 // AUTH MODELS (NextAuth.js)
 // =============================================================================
@@ -191,4 +197,23 @@ model Trade {
 
   asset           Asset            @relation(fields: [assetId], references: [id])
   councilSessions CouncilSession[]
+}
+
+// =============================================================================
+// SYSTEM CONFIGURATION (Story 3.4: Global Safety Switch)
+// =============================================================================
+
+// System-wide configuration for trading controls and safety mechanisms
+model SystemConfig {
+  id                String       @id @default("system")
+  status            SystemStatus @default(ACTIVE)
+  tradingEnabled    Boolean      @default(true)
+  initialBalance    Decimal      @db.Decimal(18, 8)
+  maxDrawdownPct    Decimal      @default(0.20) @db.Decimal(5, 4)
+  lastDrawdownCheck DateTime?
+  emergencyStopAt   DateTime?
+  emergencyReason   String?
+  updatedAt         DateTime     @updatedAt
+
+  @@map("system_config")
 }

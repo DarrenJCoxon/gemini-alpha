@@ -3,6 +3,7 @@ Execution service for trade management.
 
 Story 3.1: Kraken Order Execution Service
 Story 3.2: Dynamic Risk Engine Integration
+Story 3.4: Global Safety Switch Integration
 
 This module provides high-level trade execution functions:
 - execute_buy(): Place market buy orders and create Trade records
@@ -10,6 +11,7 @@ This module provides high-level trade execution functions:
 - execute_sell(): Place market sell orders and update Trade records
 - has_open_position(): Check for existing open positions
 - Duplicate position prevention (one position per asset)
+- Kill switch integration (blocks buys when trading disabled)
 - Database integration with Trade model
 """
 
@@ -142,12 +144,15 @@ async def execute_buy(
     entry_atr: Optional[float] = None,
     client: Optional[KrakenExecutionClient] = None,
     session: Optional[AsyncSession] = None,
+    skip_safety_check: bool = False,
 ) -> Tuple[bool, Optional[str], Optional[Trade]]:
     """
     Execute a market buy order.
 
     Places a market buy order on Kraken and creates a Trade record
     in the database with status OPEN. Prevents duplicate positions.
+
+    Story 3.4: Includes kill switch check - blocks buys when trading disabled.
 
     Args:
         symbol: Trading pair in database format (e.g., "SOLUSD")
@@ -156,6 +161,7 @@ async def execute_buy(
         entry_atr: ATR value at time of entry (from risk calculation, Story 3.2)
         client: Optional Kraken client (uses global if not provided)
         session: Optional database session
+        skip_safety_check: Skip trading enabled check (for testing only)
 
     Returns:
         Tuple of (success, error_message, trade_record)
@@ -166,6 +172,17 @@ async def execute_buy(
         RateLimitError: If rate limit exceeded (will be retried)
     """
     execution_client = client or get_kraken_execution_client()
+
+    # Story 3.4: Check kill switch before any order
+    if not skip_safety_check:
+        try:
+            from services.safety import is_trading_enabled
+            if not await is_trading_enabled():
+                logger.warning(f"Trading disabled - buy order blocked for {symbol}")
+                return False, "Trading is currently disabled", None
+        except Exception as e:
+            # If safety check fails, log but continue (fail open for initial setup)
+            logger.debug(f"Safety check failed (continuing): {e}")
 
     async def _execute(s: AsyncSession) -> Tuple[bool, Optional[str], Optional[Trade]]:
         # Get asset from database

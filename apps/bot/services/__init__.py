@@ -89,6 +89,25 @@ from .risk import (
     calculate_position_size,
     validate_stop_loss,
 )
+from .safety import (
+    # Status management
+    get_system_status,
+    get_system_config,
+    is_trading_enabled,
+    set_system_status,
+    # Trading controls
+    pause_trading,
+    resume_trading,
+    initialize_system_config,
+    # Portfolio monitoring
+    check_drawdown,
+    get_portfolio_value,
+    get_open_positions_value,
+    # Emergency
+    enforce_max_drawdown,
+    liquidate_all,
+    send_emergency_notification,
+)
 
 __all__ = [
     # Kraken client (Story 1.3)
@@ -161,4 +180,18 @@ __all__ = [
     "calculate_stop_loss_with_config",
     "calculate_position_size",
     "validate_stop_loss",
+    # Safety (Story 3.4)
+    "get_system_status",
+    "get_system_config",
+    "is_trading_enabled",
+    "set_system_status",
+    "pause_trading",
+    "resume_trading",
+    "initialize_system_config",
+    "check_drawdown",
+    "get_portfolio_value",
+    "get_open_positions_value",
+    "enforce_max_drawdown",
+    "liquidate_all",
+    "send_emergency_notification",
 ]

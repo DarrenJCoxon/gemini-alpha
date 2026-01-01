@@ -33,6 +33,7 @@ from services.data_loader import (
     load_asset_by_symbol,
 )
 from services.session_logger import log_council_session, get_recent_sessions
+from api.routes import safety_router
 
 # Load environment variables
 load_dotenv()
@@ -97,6 +98,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Register API routers (Story 3.4: Safety endpoints)
+app.include_router(safety_router)
 
 
 @app.get("/")

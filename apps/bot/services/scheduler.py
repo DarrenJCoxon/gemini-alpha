@@ -5,10 +5,12 @@ This module provides the scheduler setup and the main ingestion jobs:
 - OHLCV data fetching from Kraken at 15-minute intervals (Story 1.3)
 - Sentiment data fetching from LunarCrush/socials at 15-minute intervals (Story 1.4)
 - Position management every 15 minutes (Story 3.3)
+- Safety checks with drawdown guard every 15 minutes (Story 3.4)
 
 Based on Story 1.3: Kraken Data Ingestor requirements.
 Based on Story 1.4: Sentiment Ingestor requirements.
 Based on Story 3.3: Position Manager requirements.
+Based on Story 3.4: Global Safety Switch requirements.
 """
 
 import asyncio
@@ -294,6 +296,9 @@ council_logger = logging.getLogger("council_cycle")
 # Position manager logger
 position_logger = logging.getLogger("position_manager")
 
+# Safety service logger
+safety_logger = logging.getLogger("safety_service")
+
 
 async def run_position_check() -> dict[str, Any]:
     """
@@ -365,9 +370,15 @@ async def run_council_cycle() -> dict[str, Any]:
 
     Story 2.4: Master Node & Signal Logging
     Story 3.1: Kraken Order Execution Service
+    Story 3.4: Global Safety Switch Integration
 
     Called every 15 minutes by scheduler. Processes each active asset
     through the Council of AI Agents and logs decisions to database.
+
+    SAFETY CHECKS (Story 3.4):
+    1. Check is_trading_enabled() FIRST - skip if disabled
+    2. Check enforce_max_drawdown() BEFORE Council
+    3. If either check fails, skip Council and Execution
 
     BUY signals trigger execute_buy() via the execution service.
     In sandbox mode, orders are logged but not executed on Kraken.
@@ -385,6 +396,12 @@ async def run_council_cycle() -> dict[str, Any]:
     from services.session_logger import log_council_session
     from services.execution import execute_buy, has_open_position
     from services.kraken_execution import get_kraken_execution_client
+    from services.safety import (
+        is_trading_enabled,
+        get_system_status,
+        enforce_max_drawdown,
+    )
+    from models import SystemStatus
 
     start_time = datetime.now(timezone.utc)
     council_logger.info(f"\n{'='*60}")
@@ -411,6 +428,49 @@ async def run_council_cycle() -> dict[str, Any]:
 
     # Default position size in USD (can be configured)
     default_position_size_usd = 100.0
+
+    # SAFETY CHECK 1 (Story 3.4): Is trading enabled?
+    try:
+        if not await is_trading_enabled():
+            status = await get_system_status()
+            council_logger.warning(
+                f"[Cycle] Trading disabled (status: {status.value}). "
+                "Skipping Council and Execution."
+            )
+            stats["skipped_reason"] = f"Trading disabled: {status.value}"
+
+            # Calculate duration
+            end_time = datetime.now(timezone.utc)
+            duration = (end_time - start_time).total_seconds()
+            stats["end_time"] = end_time.isoformat()
+            stats["duration_seconds"] = duration
+
+            return stats
+    except Exception as e:
+        council_logger.error(f"[Cycle] Safety check error: {e}")
+        # Continue anyway - fail open for initial setup without DB
+
+    # SAFETY CHECK 2 (Story 3.4): Drawdown guard
+    try:
+        if await enforce_max_drawdown():
+            council_logger.critical(
+                "[Cycle] Emergency stop triggered by drawdown guard. "
+                "Cycle terminated."
+            )
+            stats["skipped_reason"] = "Emergency stop - max drawdown exceeded"
+
+            # Calculate duration
+            end_time = datetime.now(timezone.utc)
+            duration = (end_time - start_time).total_seconds()
+            stats["end_time"] = end_time.isoformat()
+            stats["duration_seconds"] = duration
+
+            return stats
+    except Exception as e:
+        council_logger.error(f"[Cycle] Drawdown check error: {e}")
+        # Continue anyway - fail open for initial setup without DB
+
+    council_logger.info("[Cycle] Safety checks passed. Proceeding with cycle.")
 
     try:
         # Get the cached Council graph
@@ -478,6 +538,18 @@ async def run_council_cycle() -> dict[str, Any]:
 
                     if action == "BUY":
                         stats["buy_signals"] += 1
+
+                        # Story 3.4: Re-check trading enabled before execution
+                        try:
+                            if not await is_trading_enabled():
+                                council_logger.warning(
+                                    f"[Cycle] BUY blocked for {asset.symbol} - "
+                                    "trading disabled during cycle"
+                                )
+                                stats["orders_blocked"] += 1
+                                continue
+                        except Exception:
+                            pass  # Continue if check fails
 
                         # Story 3.1: Check for existing position before executing
                         if await has_open_position(asset.id, session):
@@ -700,12 +772,14 @@ def create_scheduler() -> AsyncIOScheduler:
     """
     Create and configure the APScheduler instance.
 
-    Job Execution Order (Story 3.3 - CRITICAL):
+    Job Execution Order (Story 3.3, 3.4 - CRITICAL):
     1. :00, :15, :30, :45 - Data ingestion (Kraken + Sentiment)
     2. :03, :18, :33, :48 - Position check (stops/breakeven/trailing)
     3. :05, :20, :35, :50 - Council cycle (analysis + new entries)
+                           Includes safety checks (is_trading_enabled, enforce_max_drawdown)
 
     Position check runs BEFORE Council to protect capital first.
+    Safety checks are integrated into Council cycle.
 
     Returns:
         Configured AsyncIOScheduler
