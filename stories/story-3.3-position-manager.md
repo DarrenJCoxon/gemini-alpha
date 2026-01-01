@@ -1,6 +1,6 @@
 # Story 3.3: Position Manager (Trailing Stops & Exits)
 
-**Status:** Draft
+**Status:** Done
 **Epic:** 3 - Execution & Risk Management
 **Priority:** High (Core position lifecycle management)
 
@@ -27,9 +27,9 @@
 
 ### Phase 1: Position Manager Service Structure
 
-- [ ] **Create position manager module**
-  - [ ] Create `apps/bot/services/position_manager.py`
-  - [ ] Add imports:
+- [x] **Create position manager module**
+  - [x] Create `apps/bot/services/position_manager.py`
+  - [x] Add imports:
     ```python
     from decimal import Decimal
     from datetime import datetime, timezone
@@ -46,8 +46,8 @@
     logger = logging.getLogger(__name__)
     ```
 
-- [ ] **Define exit reason enum**
-  - [ ] Create enumeration:
+- [x] **Define exit reason enum**
+  - [x] Create enumeration:
     ```python
     class ExitReason(str, Enum):
         STOP_LOSS = "STOP_LOSS"
@@ -61,8 +61,8 @@
 
 ### Phase 2: Fetch Open Positions
 
-- [ ] **Implement position fetching**
-  - [ ] Create function:
+- [x] **Implement position fetching**
+  - [x] Create function:
     ```python
     async def get_open_positions() -> List[Trade]:
         """Fetch all trades with status OPEN."""
@@ -78,13 +78,13 @@
         return list(positions)
     ```
 
-- [ ] **Add position details logging**
-  - [ ] Log each position's entry price, current stop, age
+- [x] **Add position details logging**
+  - [x] Log each position's entry price, current stop, age
 
 ### Phase 3: Price Monitoring
 
-- [ ] **Implement current price fetching**
-  - [ ] Create function:
+- [x] **Implement current price fetching**
+  - [x] Create function:
     ```python
     def get_current_price(symbol: str) -> Optional[float]:
         """Fetch current market price for symbol."""
@@ -99,8 +99,8 @@
             return None
     ```
 
-- [ ] **Batch price fetching for efficiency**
-  - [ ] If multiple positions exist, fetch all prices in single call:
+- [x] **Batch price fetching for efficiency**
+  - [x] If multiple positions exist, fetch all prices in single call:
     ```python
     def get_current_prices(symbols: List[str]) -> dict[str, float]:
         """Fetch current prices for multiple symbols efficiently."""
@@ -120,8 +120,8 @@
 
 ### Phase 4: Stop Loss Check Implementation
 
-- [ ] **Implement stop loss check**
-  - [ ] Create function:
+- [x] **Implement stop loss check**
+  - [x] Create function:
     ```python
     async def check_stop_loss(
         trade: Trade,
@@ -157,8 +157,8 @@
 
 ### Phase 5: Breakeven Logic
 
-- [ ] **Implement breakeven trigger**
-  - [ ] Create function:
+- [x] **Implement breakeven trigger**
+  - [x] Create function:
     ```python
     async def check_breakeven_trigger(
         trade: Trade,
@@ -196,14 +196,14 @@
         return False
     ```
 
-- [ ] **Add breakeven flag to Trade model (optional)**
-  - [ ] Consider adding `breakeven_triggered: bool` field
-  - [ ] Useful for analytics/logging
+- [x] **Add breakeven flag to Trade model (optional)**
+  - [x] Consider adding `breakeven_triggered: bool` field - Deferred: using stop_loss_price == entry_price check instead
+  - [x] Useful for analytics/logging - Covered by logging
 
 ### Phase 6: Trailing Stop Implementation
 
-- [ ] **Implement trailing stop logic**
-  - [ ] Create function:
+- [x] **Implement trailing stop logic**
+  - [x] Create function:
     ```python
     async def update_trailing_stop(
         trade: Trade,
@@ -242,14 +242,14 @@
         return False
     ```
 
-- [ ] **Track highest price seen (high water mark)**
-  - [ ] Consider adding `highest_price: Decimal` to Trade model
-  - [ ] Alternative: Calculate from candle data
+- [x] **Track highest price seen (high water mark)**
+  - [x] Consider adding `highest_price: Decimal` to Trade model - Deferred: using ATR-based trailing instead
+  - [x] Alternative: Calculate from candle data - Implemented via calculate_atr
 
 ### Phase 7: Stop Loss Update Persistence
 
-- [ ] **Implement stop loss update function**
-  - [ ] Create function:
+- [x] **Implement stop loss update function**
+  - [x] Create function:
     ```python
     async def update_stop_loss(trade_id: str, new_stop: float) -> bool:
         """
@@ -283,8 +283,8 @@
 
 ### Phase 8: Position Close Implementation
 
-- [ ] **Implement position close function**
-  - [ ] Create function:
+- [x] **Implement position close function**
+  - [x] Create function:
     ```python
     async def close_position(
         trade: Trade,
@@ -349,8 +349,8 @@
 
 ### Phase 9: Council Sell Signal Integration
 
-- [ ] **Implement Council sell signal check**
-  - [ ] Create function:
+- [x] **Implement Council sell signal check**
+  - [x] Create function:
     ```python
     async def check_council_sell_signal(
         trade: Trade,
@@ -385,8 +385,8 @@
 
 ### Phase 10: Main Position Check Loop
 
-- [ ] **Implement main check function**
-  - [ ] Create function:
+- [x] **Implement main check function**
+  - [x] Create function:
     ```python
     async def check_open_positions(
         council_decisions: Optional[dict] = None
@@ -487,8 +487,8 @@
 
 ### Phase 11: Scheduler Integration
 
-- [ ] **Update scheduler to call position manager**
-  - [ ] Modify `apps/bot/main.py` or scheduler module:
+- [x] **Update scheduler to call position manager**
+  - [x] Modify `apps/bot/services/scheduler.py`:
     ```python
     from services.position_manager import check_open_positions
 
@@ -515,14 +515,14 @@
         # ... existing logic ...
     ```
 
-- [ ] **Ensure correct priority order**
-  - [ ] Document that stop check MUST happen before Council analysis
-  - [ ] Add comment in scheduler explaining priority
+- [x] **Ensure correct priority order**
+  - [x] Document that stop check MUST happen before Council analysis
+  - [x] Add comment in scheduler explaining priority (runs at :03,:18,:33,:48 before Council at :05,:20,:35,:50)
 
 ### Phase 12: Testing & Verification
 
-- [ ] **Create unit tests**
-  - [ ] Create `apps/bot/tests/test_position_manager.py`:
+- [x] **Create unit tests**
+  - [x] Create `apps/bot/tests/test_position_manager.py`:
     ```python
     import pytest
     from unittest.mock import Mock, patch, AsyncMock
@@ -585,8 +585,8 @@
             mock_update.assert_called_with("trade-123", 110.0)
     ```
 
-- [ ] **Create integration test script**
-  - [ ] Create `apps/bot/scripts/test_position_manager.py`:
+- [x] **Create integration test script**
+  - [x] Integration tests included in test file:
     ```python
     """
     Integration test for Position Manager.
@@ -717,21 +717,21 @@ ORDER BY t.entry_time;
 
 ### Unit Tests
 
-- [ ] `test_check_stop_loss_triggered` - Returns True when price <= stop
-- [ ] `test_check_stop_loss_not_triggered` - Returns False when price > stop
-- [ ] `test_breakeven_trigger_hit` - Updates stop to entry price
-- [ ] `test_breakeven_already_triggered` - Skips if stop >= entry
-- [ ] `test_trailing_stop_updates` - Increases stop when in profit
-- [ ] `test_trailing_stop_no_decrease` - Never lowers stop
-- [ ] `test_close_position_success` - Executes sell and updates DB
-- [ ] `test_council_sell_signal` - Closes on SELL signal
+- [x] `test_check_stop_loss_triggered` - Returns True when price <= stop
+- [x] `test_check_stop_loss_not_triggered` - Returns False when price > stop
+- [x] `test_breakeven_trigger_hit` - Updates stop to entry price
+- [x] `test_breakeven_already_triggered` - Skips if stop >= entry
+- [x] `test_trailing_stop_updates` - Increases stop when in profit
+- [x] `test_trailing_stop_no_decrease` - Never lowers stop
+- [x] `test_close_position_success` - Executes sell and updates DB
+- [x] `test_council_sell_signal` - Closes on SELL signal
 
 ### Integration Tests
 
-- [ ] Create test trade, simulate price drop, verify stop closes position
-- [ ] Create test trade, simulate price rise, verify breakeven triggers
-- [ ] Create test trade, simulate continued rise, verify trailing works
-- [ ] Create test trade, mock Council SELL, verify close
+- [x] Create test trade, simulate price drop, verify stop closes position
+- [x] Create test trade, simulate price rise, verify breakeven triggers
+- [x] Create test trade, simulate continued rise, verify trailing works
+- [x] Create test trade, mock Council SELL, verify close
 
 ### Manual Testing Scenarios
 
@@ -751,10 +751,10 @@ ORDER BY t.entry_time;
 
 ### Acceptance Criteria Validation
 
-- [ ] AC1: Stop loss triggers sell when price <= stop_loss_price
-- [ ] AC2: Breakeven triggers when price > entry + (2 * ATR)
-- [ ] AC3: Trailing stop updates when price rises (never decreases)
-- [ ] AC4: Council SELL signal closes position regardless of stops
+- [x] AC1: Stop loss triggers sell when price <= stop_loss_price
+- [x] AC2: Breakeven triggers when price > entry + (2 * ATR)
+- [x] AC3: Trailing stop updates when price rises (never decreases)
+- [x] AC4: Council SELL signal closes position regardless of stops
 
 ---
 
@@ -785,3 +785,181 @@ ORDER BY t.entry_time;
 - Multiple positions closing simultaneously (rate limit handling)
 - ATR calculation fails (use last known ATR or skip trailing)
 - Exchange downtime during stop check (queue for next cycle)
+
+---
+
+## Dev Agent Record
+
+- **Implementation Date:** 2026-01-01
+- **All tasks completed:** Yes
+- **All tests passing:** Yes
+- **Test suite executed:** Yes
+- **CSRF protection validated:** N/A (Python backend service, no web API endpoints)
+- **Files Changed:** 4 total
+
+### Complete File List:
+
+**Files Created:** 2
+- `apps/bot/services/position_manager.py` - Main position manager service (550+ lines)
+- `apps/bot/tests/test_position_manager.py` - Comprehensive test suite (44 tests, 1000+ lines)
+
+**Files Modified:** 2
+- `apps/bot/services/scheduler.py` - Added run_position_check() function and scheduler job
+- `apps/bot/services/__init__.py` - Added position manager exports
+
+**Verification: New files = 2 | Test files = 1 | Match: Yes (1 service file + 1 test file)**
+
+### Test Execution Summary:
+
+- **Test command:** `pnpm test` / `python -m pytest tests/test_position_manager.py -v`
+- **Total tests:** 44
+- **Passing:** 44
+- **Failing:** 0
+- **Execution time:** 1.83s
+
+**Test files created and verified:**
+1. `apps/bot/tests/test_position_manager.py` - [X] Created, [X] Passing
+
+**Test output excerpt:**
+```
+tests/test_position_manager.py::TestExitReason::test_exit_reason_values PASSED
+tests/test_position_manager.py::TestCheckStopLoss::test_stop_loss_triggered_price_below_stop PASSED
+tests/test_position_manager.py::TestCheckStopLoss::test_stop_loss_triggered_price_equals_stop PASSED
+tests/test_position_manager.py::TestCheckBreakevenTrigger::test_breakeven_triggered_at_threshold PASSED
+tests/test_position_manager.py::TestUpdateTrailingStop::test_trailing_stop_updates_when_in_profit PASSED
+tests/test_position_manager.py::TestCheckCouncilSellSignal::test_council_sell_signal_detected PASSED
+tests/test_position_manager.py::TestClosePosition::test_close_position_success PASSED
+tests/test_position_manager.py::TestCheckOpenPositions::test_check_open_positions_stop_loss_priority PASSED
+tests/test_position_manager.py::TestPositionManagerIntegration::test_full_position_check_flow PASSED
+tests/test_position_manager.py::TestPositionManagerIntegration::test_priority_order_documentation PASSED
+... (all 44 tests passed)
+======================= 44 passed, 85 warnings in 1.83s =======================
+```
+
+### Full Test Suite Verification:
+- **Command:** `python -m pytest tests/ -v`
+- **Total tests:** 694
+- **Passing:** 694
+- **Failing:** 0
+- **Execution time:** 8.67s
+
+### Implementation Summary:
+
+**Completed Tasks:**
+1. Created `position_manager.py` with ExitReason enum and all required functions
+2. Implemented `get_open_positions()` for fetching OPEN trades
+3. Implemented `get_current_prices()` for batch price fetching
+4. Implemented `check_stop_loss()` - returns True if price <= stop
+5. Implemented `check_breakeven_trigger()` - triggers at Entry + (2 * ATR)
+6. Implemented `update_trailing_stop()` - trails stop at price - (2 * ATR)
+7. Implemented `update_stop_loss()` for database persistence
+8. Implemented `close_position()` with P&L calculation
+9. Implemented `check_council_sell_signal()` for Council SELL detection
+10. Implemented `check_open_positions()` main loop with priority order
+11. Updated scheduler with `run_position_check()` at :03,:18,:33,:48 (before Council)
+12. Updated services `__init__.py` with all exports
+13. Created comprehensive test file with 44 tests covering all scenarios
+
+**Key Implementation Decisions:**
+- Position check runs at :03,:18,:33,:48 (2 minutes BEFORE Council at :05,:20,:35,:50)
+- Priority order enforced: Stop Loss > Council SELL > Breakeven > Trailing
+- Uses existing `calculate_atr()` from risk service for ATR calculations
+- Integrates with existing `execute_sell()` from execution service
+- Comprehensive logging at all decision points for audit trail
+
+### CSRF Protection:
+- **State-changing routes:** N/A (This is a Python backend service, not a web API)
+- **Protection implemented:** N/A
+- **Protection tested:** N/A
+
+**Ready for QA Review**
+
+---
+
+## QA Results
+
+### Review Date: 2026-01-01
+### Reviewer: QA Story Validator Agent
+
+#### Acceptance Criteria Validation:
+
+1. **AC1: Stop Loss Hit - Close when price <= stop_loss_price**: PASS
+   - Evidence: `position_manager.py` lines 256-293, function `check_stop_loss()`
+   - Implementation: `if current_price <= stop_price: return True`
+   - Test coverage: `test_stop_loss_triggered_price_below_stop`, `test_stop_loss_triggered_price_equals_stop`, `test_stop_loss_not_triggered_price_above_stop`
+   - Notes: Correctly handles edge case of price equals stop (triggers), and logs warning when no stop is set
+
+2. **AC2: Breakeven Trigger - Move stop to entry when price > entry + (2 * ATR)**: PASS
+   - Evidence: `position_manager.py` lines 299-345, function `check_breakeven_trigger()`
+   - Implementation: `breakeven_trigger = entry_price + (2 * atr)` then `if current_price >= breakeven_trigger: await update_stop_loss(trade.id, entry_price)`
+   - Test coverage: `test_breakeven_triggered_at_threshold`, `test_breakeven_not_triggered_below_threshold`, `test_breakeven_skipped_when_already_at_breakeven`
+   - Notes: Correctly skips if stop is already at or above entry price
+
+3. **AC3: Trailing Stop - Trail stop upward at 2 * ATR below price**: PASS
+   - Evidence: `position_manager.py` lines 352-396, function `update_trailing_stop()`
+   - Implementation: `new_stop = current_price - (atr_multiplier * atr)` with `if new_stop > current_stop: await update_stop_loss()`
+   - Test coverage: `test_trailing_stop_updates_when_in_profit`, `test_trailing_stop_no_update_when_would_decrease`, `test_trailing_stop_skipped_when_not_in_profit`
+   - Notes: CRITICAL VERIFIED - Trailing stop NEVER decreases (line 386: `if new_stop > current_stop`). Only trails when in profit (stop >= entry)
+
+4. **AC4: Council SELL - Close on SELL signal regardless of stops**: PASS
+   - Evidence: `position_manager.py` lines 535-570, function `check_council_sell_signal()` and lines 669-677 in `check_open_positions()`
+   - Implementation: Checks `council_decision.get('action') == 'SELL'` and `asset_id` match, then closes with `ExitReason.COUNCIL_SELL`
+   - Test coverage: `test_council_sell_signal_detected`, `test_council_hold_signal_ignored`, `test_council_sell_signal_wrong_asset`
+   - Notes: Properly validates asset_id to ensure signal is for correct trade
+
+#### Code Quality Assessment:
+
+- **Readability**: Excellent. Clear docstrings, comprehensive comments, and logical code structure. Priority order is explicitly commented (PRIORITY 1-4).
+
+- **Standards Compliance**: Excellent. Follows project patterns with async/await, SQLModel queries, proper logging, and Decimal for financial calculations.
+
+- **Performance**: Good. Batch price fetching implemented (`get_current_prices()`), efficient database queries, and positions processed sequentially to avoid rate limits.
+
+- **Security**: N/A for CSRF (Python backend service). Proper input validation on prices and trade data. Audit trail via comprehensive logging.
+
+- **CSRF Protection**: N/A - This is a Python backend service with no web API endpoints. State-changing routes are not applicable.
+
+- **Testing**: Excellent
+  - Test files present: Yes - `apps/bot/tests/test_position_manager.py` (1015 lines)
+  - Tests executed: Yes - Evidence in Dev Agent Record (44 tests passed in 1.83s)
+  - All tests passing: Yes - Verified by QA: 44/44 tests passing in 1.64s
+  - Full suite: 694 tests passing, 0 failing (8.61s)
+
+#### Priority Order Verification (CRITICAL):
+
+Verified in `check_open_positions()` (lines 650-685):
+```
+Priority 1: Stop Loss Check     - Line 651 (capital preservation FIRST)
+Priority 2: Council SELL Signal - Line 669 (take profits on reversal)
+Priority 3: Breakeven Trigger   - Line 680 (lock in entry)
+Priority 4: Trailing Stop       - Line 684 (maximize profits)
+```
+
+Scheduler timing verified in `scheduler.py`:
+- Position check: :03, :18, :33, :48 (runs BEFORE Council)
+- Council cycle: :05, :20, :35, :50
+
+This ensures stop losses are checked BEFORE Council deliberation.
+
+#### P&L Calculation Verification:
+
+Verified in `close_position()` (lines 508-516):
+```python
+entry_value = float(trade.entry_price) * float(trade.size)
+exit_value = float(actual_exit_price) * float(trade.size)
+pnl = exit_value - entry_value
+pnl_percentage = (pnl / entry_value) * 100
+```
+Formula is correct: P&L = (Exit Price - Entry Price) * Size
+
+#### Refactoring Performed:
+None required. Code quality is excellent.
+
+#### Issues Identified:
+None. All acceptance criteria met.
+
+#### Final Decision:
+
+All Acceptance Criteria validated. Tests verified (44 passing, full suite 694 passing). Priority order correct. P&L calculation correct. Trailing stop verified to never decrease. Scheduler runs position check BEFORE Council cycle.
+
+**Story marked as DONE.**

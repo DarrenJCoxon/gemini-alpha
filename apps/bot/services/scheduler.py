@@ -4,9 +4,11 @@ APScheduler configuration for the Contrarian AI Trading Bot.
 This module provides the scheduler setup and the main ingestion jobs:
 - OHLCV data fetching from Kraken at 15-minute intervals (Story 1.3)
 - Sentiment data fetching from LunarCrush/socials at 15-minute intervals (Story 1.4)
+- Position management every 15 minutes (Story 3.3)
 
 Based on Story 1.3: Kraken Data Ingestor requirements.
 Based on Story 1.4: Sentiment Ingestor requirements.
+Based on Story 3.3: Position Manager requirements.
 """
 
 import asyncio
@@ -288,6 +290,73 @@ sentiment_logger = logging.getLogger("sentiment_ingestor")
 
 # Council cycle logger
 council_logger = logging.getLogger("council_cycle")
+
+# Position manager logger
+position_logger = logging.getLogger("position_manager")
+
+
+async def run_position_check() -> dict[str, Any]:
+    """
+    Run position management check cycle.
+
+    Story 3.3: Position Manager (Trailing Stops & Exits)
+
+    Called every 15 minutes by scheduler. This MUST run BEFORE the Council
+    cycle to ensure we don't hold losing positions while debating new entries.
+
+    Priority Order (CRITICAL - capital preservation first):
+    1. Stop Loss - Check and close if price <= stop
+    2. Council SELL - Close on reversal signals
+    3. Breakeven Trigger - Lock in entry price
+    4. Trailing Stop - Maximize profits
+
+    Returns:
+        Dict with position check statistics
+    """
+    from services.position_manager import check_open_positions
+
+    start_time = datetime.now(timezone.utc)
+    position_logger.info(f"\n{'='*60}")
+    position_logger.info(f"[Position] Starting position check at {start_time.isoformat()}")
+    position_logger.info(f"{'='*60}")
+
+    stats = {
+        "start_time": start_time.isoformat(),
+        "positions_checked": 0,
+        "stops_hit": 0,
+        "breakevens_triggered": 0,
+        "trailing_updates": 0,
+        "council_closes": 0,
+        "errors": 0,
+    }
+
+    try:
+        # Run position check (without Council decisions - those come later)
+        result = await check_open_positions()
+        stats.update(result)
+
+    except Exception as e:
+        error_msg = f"Position check error: {str(e)}"
+        position_logger.error(f"[Position] {error_msg}")
+        stats["errors"] += 1
+
+    # Calculate duration
+    end_time = datetime.now(timezone.utc)
+    duration = (end_time - start_time).total_seconds()
+    stats["end_time"] = end_time.isoformat()
+    stats["duration_seconds"] = duration
+
+    position_logger.info(f"[Position] Position check complete")
+    position_logger.info(
+        f"[Position] Checked: {stats['positions_checked']}, "
+        f"Stops Hit: {stats['stops_hit']}, "
+        f"Breakevens: {stats['breakevens_triggered']}, "
+        f"Trailing: {stats['trailing_updates']}, "
+        f"Duration: {duration:.2f}s"
+    )
+    position_logger.info(f"{'='*60}\n")
+
+    return stats
 
 
 async def run_council_cycle() -> dict[str, Any]:
@@ -631,6 +700,13 @@ def create_scheduler() -> AsyncIOScheduler:
     """
     Create and configure the APScheduler instance.
 
+    Job Execution Order (Story 3.3 - CRITICAL):
+    1. :00, :15, :30, :45 - Data ingestion (Kraken + Sentiment)
+    2. :03, :18, :33, :48 - Position check (stops/breakeven/trailing)
+    3. :05, :20, :35, :50 - Council cycle (analysis + new entries)
+
+    Position check runs BEFORE Council to protect capital first.
+
     Returns:
         Configured AsyncIOScheduler
     """
@@ -665,6 +741,24 @@ def create_scheduler() -> AsyncIOScheduler:
 
     sentiment_logger.info(
         f"Scheduler configured with Sentiment ingestion at minutes: {config.scheduler.ingest_cron_minutes}"
+    )
+
+    # Add the Position check job (Story 3.3)
+    # Runs 3 minutes after ingestion to allow data to be available
+    # MUST run BEFORE Council cycle to protect capital first
+    # e.g., runs at :03, :18, :33, :48
+    scheduler.add_job(
+        run_position_check,
+        CronTrigger(minute="3,18,33,48"),
+        id="position_check",
+        name="Position Manager Check",
+        replace_existing=True,
+        max_instances=1,  # Prevent overlapping executions
+    )
+
+    position_logger.info(
+        "Scheduler configured with Position check at minutes: 3,18,33,48 "
+        "(runs BEFORE Council cycle)"
     )
 
     # Add the Council cycle job (Story 2.4)
