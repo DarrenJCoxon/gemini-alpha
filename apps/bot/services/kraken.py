@@ -447,6 +447,72 @@ class KrakenClient:
         kraken_symbol = self.convert_symbol_to_kraken(db_symbol)
         return await self.fetch_daily_ohlcv(kraken_symbol, limit)
 
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+        retry=retry_if_exception_type((ccxt.NetworkError, ccxt.RequestTimeout)),
+        before_sleep=before_sleep_log(logger, logging.WARNING),
+    )
+    async def fetch_all_tickers(self) -> dict[str, dict[str, Any]]:
+        """
+        Fetch ticker data for ALL trading pairs in a single API call.
+
+        Story 5.8: Efficient bulk fetch for opportunity scanner.
+
+        Returns:
+            Dict mapping symbol to ticker data:
+            {
+                "BTC/USD": {
+                    "symbol": "BTC/USD",
+                    "last": 42000.0,
+                    "high": 43000.0,
+                    "low": 41000.0,
+                    "baseVolume": 1234.5,
+                    "quoteVolume": 52000000.0,  # 24h volume in USD
+                    "change": -2.5,  # % change
+                    ...
+                },
+                ...
+            }
+
+        Raises:
+            ccxt.NetworkError: On network issues (will be retried)
+            ccxt.RequestTimeout: On timeout (will be retried)
+        """
+        await self.initialize()
+        if self.exchange is None:
+            raise RuntimeError("Exchange not initialized")
+
+        if not self.circuit_breaker.can_proceed():
+            raise RuntimeError("Circuit breaker is open, skipping request")
+
+        try:
+            tickers = await self.exchange.fetch_tickers()
+            self.circuit_breaker.record_success()
+
+            # Filter to USD pairs only
+            usd_tickers = {
+                k: v for k, v in tickers.items()
+                if k.endswith('/USD')
+            }
+
+            logger.info(f"Fetched {len(usd_tickers)} USD tickers from Kraken")
+            return usd_tickers
+
+        except Exception as e:
+            self.circuit_breaker.record_failure()
+            raise
+
+    async def get_usd_pair_count(self) -> int:
+        """Get count of available USD trading pairs."""
+        await self.initialize()
+        if self.exchange is None:
+            return 0
+
+        await self.exchange.load_markets()
+        usd_pairs = [s for s in self.exchange.symbols if s.endswith('/USD')]
+        return len(usd_pairs)
+
 
 # Global client instance
 _kraken_client: Optional[KrakenClient] = None

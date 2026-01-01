@@ -40,6 +40,7 @@ from services.asset_universe import (
     get_asset_tier,
     AssetTier,
 )
+from services.opportunity_scanner import run_opportunity_scan, get_dynamic_trading_universe
 
 # Configure logging
 logger = logging.getLogger("kraken_ingestor")
@@ -69,19 +70,19 @@ async def get_quality_assets(session: AsyncSession) -> List[Asset]:
     """
     Fetch quality assets for council processing.
 
-    Story 5.2: Returns only assets in the quality universe (Tier 1-3).
-    This is the primary function for council cycle asset iteration.
+    Story 5.8: Now uses dynamic scanner universe when available.
+    Falls back to static configuration (Story 5.2) if scanner disabled.
 
     Args:
         session: Database session
 
     Returns:
-        List of Asset objects in quality universe (8-10 assets)
+        List of Asset objects for council processing
     """
     from sqlmodel import select
 
-    # Get quality asset symbols from configuration
-    quality_symbols = get_full_asset_universe()
+    # Get dynamic universe (or fallback to static)
+    quality_symbols = get_dynamic_trading_universe()
 
     # Query only assets in the quality universe
     statement = select(Asset).where(
@@ -92,8 +93,8 @@ async def get_quality_assets(session: AsyncSession) -> List[Asset]:
     assets = list(result.scalars().all())
 
     logger.info(
-        f"Quality universe: {len(assets)} assets "
-        f"(configured: {len(quality_symbols)})"
+        f"Trading universe: {len(assets)} assets "
+        f"(requested: {len(quality_symbols)})"
     )
 
     return assets
@@ -443,6 +444,9 @@ safety_logger = logging.getLogger("safety_service")
 
 # On-chain ingestion logger (Story 5.6)
 onchain_logger = logging.getLogger("onchain_ingestor")
+
+# Scanner logger (Story 5.8)
+scanner_logger = logging.getLogger("opportunity_scanner")
 
 
 async def run_position_check() -> dict[str, Any]:
@@ -1125,6 +1129,21 @@ def create_scheduler() -> AsyncIOScheduler:
 
     council_logger.info(
         "Scheduler configured with Council cycle at minutes: 5,20,35,50 (Paper Trading mode)"
+    )
+
+    # Add the Opportunity Scanner job (Story 5.8)
+    # Runs at minute 10 each hour (after data ingestion, before council)
+    scheduler.add_job(
+        run_opportunity_scan,
+        CronTrigger(minute="10"),
+        id="opportunity_scanner",
+        name="Dynamic Opportunity Scanner",
+        replace_existing=True,
+        max_instances=1,  # Prevent overlapping executions
+    )
+
+    scanner_logger.info(
+        "Scheduler configured with Opportunity Scanner at minute: 10 (hourly)"
     )
 
     return scheduler

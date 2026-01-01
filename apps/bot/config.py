@@ -435,6 +435,72 @@ class EnhancedRiskConfig:
 
 
 @dataclass
+class ScannerConfig:
+    """
+    Dynamic Opportunity Scanner configuration (Story 5.8).
+
+    Scans all Kraken USD pairs hourly to discover contrarian opportunities.
+    """
+
+    # Enable/disable scanner
+    enabled: bool = field(
+        default_factory=lambda: os.getenv("SCANNER_ENABLED", "true").lower() == "true"
+    )
+
+    # Minimum 24h volume in USD to consider a pair
+    min_volume_usd: float = field(
+        default_factory=lambda: float(os.getenv("SCANNER_MIN_VOLUME", "1000000"))
+    )
+
+    # Maximum assets to include in active universe
+    universe_size: int = field(
+        default_factory=lambda: int(os.getenv("SCANNER_UNIVERSE_SIZE", "10"))
+    )
+
+    # Minimum score threshold to include in universe
+    min_score: float = field(
+        default_factory=lambda: float(os.getenv("SCANNER_MIN_SCORE", "40"))
+    )
+
+    # Score weights (must sum to ~82 for full score before liquidity bonus)
+    weight_rsi_oversold: float = field(
+        default_factory=lambda: float(os.getenv("SCANNER_WEIGHT_RSI", "15"))
+    )
+    weight_price_capitulation: float = field(
+        default_factory=lambda: float(os.getenv("SCANNER_WEIGHT_CAPITULATION", "15"))
+    )
+    weight_volume_spike: float = field(
+        default_factory=lambda: float(os.getenv("SCANNER_WEIGHT_VOLUME_SPIKE", "12"))
+    )
+    weight_adx_weak: float = field(
+        default_factory=lambda: float(os.getenv("SCANNER_WEIGHT_ADX", "12"))
+    )
+    weight_bollinger_lower: float = field(
+        default_factory=lambda: float(os.getenv("SCANNER_WEIGHT_BOLLINGER", "12"))
+    )
+    weight_vwap_discount: float = field(
+        default_factory=lambda: float(os.getenv("SCANNER_WEIGHT_VWAP", "6"))
+    )
+    weight_liquidity_bonus: float = field(
+        default_factory=lambda: float(os.getenv("SCANNER_WEIGHT_LIQUIDITY", "10"))
+    )
+
+    # Technical thresholds
+    rsi_oversold_threshold: float = field(
+        default_factory=lambda: float(os.getenv("SCANNER_RSI_THRESHOLD", "30"))
+    )
+    capitulation_threshold_pct: float = field(
+        default_factory=lambda: float(os.getenv("SCANNER_CAPITULATION_PCT", "10"))
+    )
+    volume_spike_mult: float = field(
+        default_factory=lambda: float(os.getenv("SCANNER_VOLUME_SPIKE_MULT", "2.0"))
+    )
+    adx_weak_threshold: float = field(
+        default_factory=lambda: float(os.getenv("SCANNER_ADX_THRESHOLD", "25"))
+    )
+
+
+@dataclass
 class GeminiVisionConfig:
     """
     Google Gemini Pro Vision configuration for Chart Analysis (Story 2.3).
@@ -627,6 +693,7 @@ class Config:
     gemini_vision: GeminiVisionConfig = field(default_factory=GeminiVisionConfig)
     risk: RiskConfig = field(default_factory=RiskConfig)
     onchain: OnChainConfig = field(default_factory=OnChainConfig)
+    scanner: ScannerConfig = field(default_factory=ScannerConfig)
     web_url: str = field(default_factory=lambda: os.getenv("WEB_URL", ""))
     debug: bool = field(
         default_factory=lambda: os.getenv("DEBUG", "").lower() == "true"
