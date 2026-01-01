@@ -4,14 +4,17 @@ Execution service for trade management.
 Story 3.1: Kraken Order Execution Service
 Story 3.2: Dynamic Risk Engine Integration
 Story 3.4: Global Safety Switch Integration
+Story 5.2: Asset Universe Reduction - Allocation Limits
 
 This module provides high-level trade execution functions:
 - execute_buy(): Place market buy orders and create Trade records
 - execute_buy_with_risk(): Place market buy orders with ATR-based stop loss
+- execute_buy_with_allocation_check(): Execute with tier allocation enforcement
 - execute_sell(): Place market sell orders and update Trade records
 - has_open_position(): Check for existing open positions
 - Duplicate position prevention (one position per asset)
 - Kill switch integration (blocks buys when trading disabled)
+- Tier allocation limits (Story 5.2)
 - Database integration with Trade model
 """
 
@@ -19,7 +22,7 @@ import logging
 import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
-from typing import List, Optional, Tuple, Any
+from typing import Dict, List, Optional, Tuple, Any
 
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -45,6 +48,8 @@ from .exceptions import (
     PositionNotFoundError,
     InvalidSymbolError,
 )
+from .asset_universe import get_asset_tier, AssetTier
+from .allocation_manager import check_allocation_capacity
 
 # Configure logging
 logger = logging.getLogger("execution_service")
@@ -373,6 +378,107 @@ async def execute_buy_with_risk(
         amount_usd=amount_usd,
         stop_loss_price=stop_loss_price,
         entry_atr=atr_value,
+        client=client,
+        session=session,
+    )
+
+
+async def execute_buy_with_allocation_check(
+    symbol: str,
+    amount_usd: float,
+    portfolio_value: float,
+    current_tier_allocations: Dict[AssetTier, Decimal],
+    candles: List[dict],
+    atr_multiplier: float = 2.0,
+    atr_period: int = 14,
+    client: Optional[KrakenExecutionClient] = None,
+    session: Optional[AsyncSession] = None,
+) -> Tuple[bool, Optional[str], Optional[Trade]]:
+    """
+    Execute buy with tier allocation enforcement.
+
+    Story 5.2: Asset Universe Reduction
+
+    This function:
+    1. Determines the asset's tier
+    2. Checks if the asset is excluded (meme coin, etc.)
+    3. Verifies allocation fits within tier limits
+    4. Adjusts position size if needed to stay within limits
+    5. Executes the buy via execute_buy_with_risk()
+
+    Args:
+        symbol: Trading pair in database format (e.g., "SOLUSD")
+        amount_usd: Requested amount in USD to spend
+        portfolio_value: Total portfolio value in USD
+        current_tier_allocations: Dict of current USD allocated per tier
+        candles: Recent OHLCV candle data for ATR calculation
+        atr_multiplier: Multiplier for ATR distance (default: 2.0)
+        atr_period: ATR calculation period (default: 14)
+        client: Optional Kraken client (uses global if not provided)
+        session: Optional database session
+
+    Returns:
+        Tuple of (success, error_message, trade_record)
+
+    Example:
+        >>> # Get current allocations from open trades
+        >>> allocations = await get_current_tier_allocations(open_trades)
+        >>> success, error, trade = await execute_buy_with_allocation_check(
+        ...     symbol="SOLUSD",
+        ...     amount_usd=1000.0,
+        ...     portfolio_value=50000.0,
+        ...     current_tier_allocations=allocations,
+        ...     candles=candles,
+        ... )
+    """
+    # Step 1: Determine asset tier
+    tier = get_asset_tier(symbol)
+
+    # Step 2: Check if asset is excluded
+    if tier == AssetTier.EXCLUDED:
+        logger.warning(f"Buy blocked for {symbol}: Asset is excluded from trading")
+        return False, f"{symbol} is excluded from trading", None
+
+    # Step 3: Check allocation capacity
+    current_tier_alloc = current_tier_allocations.get(tier, Decimal("0"))
+    allocation_check = await check_allocation_capacity(
+        symbol=symbol,
+        tier=tier,
+        portfolio_value=Decimal(str(portfolio_value)),
+        current_tier_allocation=current_tier_alloc,
+        requested_amount=Decimal(str(amount_usd)),
+    )
+
+    # Step 4: Handle allocation results
+    if not allocation_check.can_allocate:
+        logger.warning(
+            f"Buy blocked for {symbol}: {allocation_check.reason}"
+        )
+        return False, allocation_check.reason, None
+
+    # Adjust amount if reduced by allocation check
+    adjusted_amount = float(allocation_check.max_amount)
+
+    if adjusted_amount < amount_usd:
+        logger.info(
+            f"Allocation adjusted for {symbol} ({tier.value}): "
+            f"Requested ${amount_usd:.2f} -> Adjusted ${adjusted_amount:.2f} "
+            f"(tier capacity: ${allocation_check.remaining_capacity:.2f} remaining)"
+        )
+
+    # Step 5: Execute buy with ATR-based risk
+    logger.info(
+        f"Executing {tier.value} buy for {symbol}: ${adjusted_amount:.2f} "
+        f"(tier limit: ${allocation_check.tier_limit:.2f}, "
+        f"current: ${allocation_check.current_allocation:.2f})"
+    )
+
+    return await execute_buy_with_risk(
+        symbol=symbol,
+        amount_usd=adjusted_amount,
+        candles=candles,
+        atr_multiplier=atr_multiplier,
+        atr_period=atr_period,
         client=client,
         session=session,
     )

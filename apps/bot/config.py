@@ -360,6 +360,67 @@ def get_gemini_pro_vision_model():
 
 
 @dataclass
+class AssetUniverseConfig:
+    """
+    Asset universe configuration (Story 5.2).
+
+    Controls the quality asset universe with tiered allocation limits.
+    Tier 3 assets are configurable via environment variable.
+    """
+
+    # Tier 3 configurable assets (comma-separated)
+    tier_3_assets: str = field(
+        default_factory=lambda: os.getenv("TIER_3_ASSETS", "AAVEUSD,UNIUSD,ARBUSD")
+    )
+
+    # Allocation limits (percentage of portfolio)
+    tier_1_allocation: float = field(
+        default_factory=lambda: float(os.getenv("TIER_1_ALLOCATION", "60"))
+    )
+    tier_2_allocation: float = field(
+        default_factory=lambda: float(os.getenv("TIER_2_ALLOCATION", "30"))
+    )
+    tier_3_allocation: float = field(
+        default_factory=lambda: float(os.getenv("TIER_3_ALLOCATION", "10"))
+    )
+
+    # Minimum 24h volume requirements by tier (in USD)
+    min_volume_24h_tier1: float = field(
+        default_factory=lambda: float(os.getenv("MIN_VOLUME_TIER1", "1000000000"))
+    )
+    min_volume_24h_tier2: float = field(
+        default_factory=lambda: float(os.getenv("MIN_VOLUME_TIER2", "100000000"))
+    )
+    min_volume_24h_tier3: float = field(
+        default_factory=lambda: float(os.getenv("MIN_VOLUME_TIER3", "50000000"))
+    )
+
+    def get_tier_3_list(self) -> list[str]:
+        """Parse tier 3 assets from comma-separated string."""
+        if not self.tier_3_assets:
+            return []
+        return [a.strip().upper() for a in self.tier_3_assets.split(",") if a.strip()]
+
+    def validate(self) -> None:
+        """
+        Validate asset universe configuration.
+
+        Raises:
+            ValueError: If configuration values are invalid
+        """
+        total_allocation = self.tier_1_allocation + self.tier_2_allocation + self.tier_3_allocation
+        if total_allocation > 100:
+            raise ValueError(
+                f"Total tier allocation exceeds 100%: "
+                f"T1={self.tier_1_allocation}% + T2={self.tier_2_allocation}% + "
+                f"T3={self.tier_3_allocation}% = {total_allocation}%"
+            )
+
+        if self.tier_1_allocation < 0 or self.tier_2_allocation < 0 or self.tier_3_allocation < 0:
+            raise ValueError("Tier allocation percentages cannot be negative")
+
+
+@dataclass
 class Config:
     """Main application configuration."""
 
@@ -372,6 +433,7 @@ class Config:
     gemini: GeminiConfig = field(default_factory=GeminiConfig)
     gemini_vision: GeminiVisionConfig = field(default_factory=GeminiVisionConfig)
     risk: RiskConfig = field(default_factory=RiskConfig)
+    asset_universe: AssetUniverseConfig = field(default_factory=AssetUniverseConfig)
     web_url: str = field(default_factory=lambda: os.getenv("WEB_URL", ""))
     debug: bool = field(
         default_factory=lambda: os.getenv("DEBUG", "").lower() == "true"

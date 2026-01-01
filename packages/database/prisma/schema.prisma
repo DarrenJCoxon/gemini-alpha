@@ -111,6 +111,14 @@ model Asset {
   lastUpdated DateTime?
   createdAt   DateTime  @default(now())
 
+  // Story 5.2: Asset Tier System
+  tier                  String?   @db.VarChar(20)
+  maxAllocationPercent  Decimal?  @db.Decimal(5, 2)
+  minVolume24h          Decimal?  @db.Decimal(18, 2)
+  minMarketCap          Decimal?  @db.Decimal(18, 2)
+  isMemeCoin            Boolean   @default(false)
+  exclusionReason       String?   @db.VarChar(255)
+
   candles         Candle[]
   sentimentLogs   SentimentLog[]
   councilSessions CouncilSession[]
