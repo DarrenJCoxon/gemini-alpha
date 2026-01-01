@@ -81,6 +81,20 @@ class CouncilSession(SQLModel, table=True):
         sa_column=Column("createdAt", DateTime, nullable=False),
     )
 
+    # Story 5.3: Multi-Factor Analysis
+    buy_factors_met: Optional[int] = Field(
+        default=None,
+        sa_column=Column("buyFactorsMet", Integer, nullable=True),
+    )
+    sell_factors_met: Optional[int] = Field(
+        default=None,
+        sa_column=Column("sellFactorsMet", Integer, nullable=True),
+    )
+    factors_triggered: Optional[str] = Field(
+        default=None,
+        sa_column=Column("factorsTriggered", Text, nullable=True),
+    )  # JSON string of triggered factors
+
     # Relationships
     asset: Optional["Asset"] = Relationship(back_populates="council_sessions")
     trade: Optional["Trade"] = Relationship(back_populates="council_sessions")

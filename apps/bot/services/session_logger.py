@@ -2,6 +2,7 @@
 Session Logger Service for Council Sessions.
 
 Story 2.4: Master Node & Signal Logging
+Story 5.3: Multi-Factor Confirmation System
 
 This module provides functions to log council sessions to the database
 for audit, performance tracking, and UI display in the "Council Feed".
@@ -9,6 +10,12 @@ for audit, performance tracking, and UI display in the "Council Feed".
 Paper Trading Mode:
     This story logs decisions but does NOT execute trades.
     The Trade table is untouched. Trade execution is in Epic 3.
+
+Multi-Factor Logging (Story 5.3):
+    Council sessions now include multi-factor analysis results:
+    - buy_factors_met: Number of BUY factors triggered
+    - sell_factors_met: Number of SELL factors triggered
+    - factors_triggered: JSON with lists of triggered factor names
 """
 
 import json
@@ -50,11 +57,18 @@ async def log_council_session(
     Note:
         This is Paper Trading mode - NO trade execution.
         The executed_trade_id field remains null.
+
+    Story 5.3:
+        Multi-factor analysis is now logged including:
+        - buy_factors_met: count of triggered buy factors
+        - sell_factors_met: count of triggered sell factors
+        - factors_triggered: JSON with factor names
     """
     sentiment = state.get("sentiment_analysis") or {}
     technical = state.get("technical_analysis") or {}
     vision = state.get("vision_analysis") or {}
     decision = state.get("final_decision") or {}
+    mf_analysis = state.get("multi_factor_analysis") or {}
 
     # Build technical details JSON
     technical_details = {
@@ -89,6 +103,14 @@ async def log_council_session(
     else:
         vision_confidence_decimal = None
 
+    # Story 5.3: Build multi-factor data
+    buy_factors_met = mf_analysis.get("buy_factors_met")
+    sell_factors_met = mf_analysis.get("sell_factors_met")
+    factors_triggered_json = json.dumps({
+        "buy": mf_analysis.get("buy_factors_triggered", []),
+        "sell": mf_analysis.get("sell_factors_triggered", [])
+    }) if mf_analysis else None
+
     # Create session record
     council_session = CouncilSession(
         asset_id=asset_id,
@@ -101,6 +123,10 @@ async def log_council_session(
         final_decision=final_decision_enum,
         reasoning_log=decision.get("reasoning", "No reasoning provided"),
         executed_trade_id=None,  # Paper Trading - no trade execution
+        # Story 5.3: Multi-factor fields
+        buy_factors_met=buy_factors_met,
+        sell_factors_met=sell_factors_met,
+        factors_triggered=factors_triggered_json,
     )
 
     session.add(council_session)
@@ -109,7 +135,7 @@ async def log_council_session(
 
     logger.info(
         f"[SessionLogger] Logged session #{council_session.id} for asset {asset_id}: "
-        f"{final_decision_enum.value}"
+        f"{final_decision_enum.value} (buy_factors: {buy_factors_met}, sell_factors: {sell_factors_met})"
     )
 
     return council_session

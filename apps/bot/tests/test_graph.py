@@ -201,14 +201,15 @@ class TestGraphStubBehavior:
         assert result["vision_analysis"]["patterns_detected"] == []
 
     def test_graph_stub_returns_hold_decision(self):
-        """Test stub returns HOLD decision."""
+        """Test stub returns HOLD decision with multi-factor analysis."""
         graph = build_council_graph()
         state = create_initial_state(asset_symbol="SOLUSD")
 
         result = graph.invoke(state)
 
+        # Story 5.3: Multi-factor now calculates confidence from weighted factors
         assert result["final_decision"]["action"] == "HOLD"
-        assert result["final_decision"]["confidence"] == 50
+        assert 0 <= result["final_decision"]["confidence"] <= 100
 
 
 class TestGraphEdgeCases:

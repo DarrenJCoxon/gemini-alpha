@@ -120,6 +120,31 @@ class FinalDecision(TypedDict):
     timestamp: datetime
 
 
+class MultiFactorAnalysisState(TypedDict, total=False):
+    """
+    Multi-factor analysis result state (Story 5.3).
+
+    Contains the aggregated results from multi-factor confirmation
+    analysis, including which factors were triggered for BUY and SELL.
+
+    Attributes:
+        action: The suggested action from multi-factor analysis
+        buy_factors_met: Number of BUY factors that were triggered
+        sell_factors_met: Number of SELL factors that were triggered
+        buy_factors_triggered: List of BUY factor names that were triggered
+        sell_factors_triggered: List of SELL factor names that were triggered
+        confidence: Confidence percentage based on weighted factor scoring
+        reasoning: Human-readable summary of the multi-factor analysis
+    """
+    action: str
+    buy_factors_met: int
+    sell_factors_met: int
+    buy_factors_triggered: List[str]
+    sell_factors_triggered: List[str]
+    confidence: float
+    reasoning: str
+
+
 class GraphState(TypedDict):
     """
     Main state container for the Council of AI Agents.
@@ -167,6 +192,12 @@ class GraphState(TypedDict):
     vision_analysis: Optional[VisionAnalysis]
     final_decision: Optional[FinalDecision]
 
+    # Multi-factor analysis (Story 5.3)
+    multi_factor_analysis: Optional[MultiFactorAnalysisState]
+
+    # Regime analysis (Story 5.1 - optional, for future integration)
+    regime_analysis: Optional[Dict[str, Any]]
+
     # Error handling
     error: Optional[str]
 
@@ -206,5 +237,7 @@ def create_initial_state(
         sentiment_analysis=None,
         vision_analysis=None,
         final_decision=None,
+        multi_factor_analysis=None,
+        regime_analysis=None,
         error=None
     )

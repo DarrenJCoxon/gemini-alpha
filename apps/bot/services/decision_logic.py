@@ -2,18 +2,26 @@
 Decision Logic Module for the Master Node.
 
 Story 2.4: Master Node & Signal Logging
+Story 5.3: Multi-Factor Confirmation System
 
 This module implements the strict decision validation rules for
 the contrarian trading strategy. These rules are applied BEFORE
 and AFTER the LLM synthesis to ensure safety.
 
-Decision Logic:
+Original Decision Logic (Story 2.4):
     BUY = (fear_score < 20) AND (technical_signal == "BULLISH") AND (vision_is_valid == true)
     SELL = (fear_score > 80) OR (technical_signal == "BEARISH" AND strength > 70)
     HOLD = All other cases (default)
+
+Multi-Factor Confirmation (Story 5.3):
+    BUY = 3+ of 6 factors triggered (configurable)
+    SELL = 2+ of 5 factors triggered (configurable)
+    HOLD = Neither threshold met
 """
 
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
+
+from services.multi_factor_analyzer import analyze_all_factors
 
 # Contrarian thresholds
 FEAR_THRESHOLD_BUY = 20      # fear_score must be BELOW this to buy
@@ -223,3 +231,82 @@ def calculate_decision_confidence(
     else:  # HOLD
         # Medium confidence for HOLD - we're uncertain
         return 50
+
+
+def validate_decision_with_multi_factor(
+    sentiment_analysis: Dict[str, Any],
+    technical_analysis: Dict[str, Any],
+    vision_analysis: Dict[str, Any],
+    current_price: float,
+    regime_analysis: Optional[Dict[str, Any]] = None
+) -> Tuple[str, Dict[str, Any]]:
+    """
+    Validate trading decision using multi-factor confirmation (Story 5.3).
+
+    Analyzes all BUY and SELL factors to determine if sufficient
+    confluence exists for a trading signal. This replaces simple
+    threshold-based decisions with a more robust multi-factor approach.
+
+    Args:
+        sentiment_analysis: From Sentiment Agent
+        technical_analysis: From Technical Agent
+        vision_analysis: From Vision Agent
+        current_price: Current asset price
+        regime_analysis: Optional regime context (Story 5.1 integration)
+
+    Returns:
+        Tuple of (action: str, analysis_details: Dict)
+        action is one of "BUY", "SELL", "HOLD"
+        analysis_details contains full factor breakdown
+    """
+    # Analyze all factors
+    factor_analyses = analyze_all_factors(
+        sentiment_analysis,
+        technical_analysis,
+        vision_analysis,
+        current_price
+    )
+
+    buy_analysis = factor_analyses["buy"]
+    sell_analysis = factor_analyses["sell"]
+
+    # Apply regime adjustments if available (Story 5.1 integration)
+    if regime_analysis:
+        regime = regime_analysis.get("regime", "CHOP")
+        # Regime can increase required factors
+        if regime == "BEAR":
+            # In bear market, require more factors for buy
+            if buy_analysis.factors_met < 4:
+                # Create a new analysis with updated threshold
+                buy_analysis = type(buy_analysis)(
+                    signal_type="HOLD",
+                    factors_triggered=buy_analysis.factors_triggered,
+                    factors_not_triggered=buy_analysis.factors_not_triggered,
+                    total_factors_checked=buy_analysis.total_factors_checked,
+                    factors_met=buy_analysis.factors_met,
+                    weighted_score=buy_analysis.weighted_score,
+                    min_factors_required=4,  # Increased requirement
+                    passes_threshold=False,
+                    confidence=buy_analysis.confidence,
+                    reasoning=buy_analysis.reasoning + " (BEAR regime requires 4+ factors)"
+                )
+
+    # Determine action based on factor analysis
+    if buy_analysis.passes_threshold:
+        action = "BUY"
+        primary_analysis = buy_analysis
+    elif sell_analysis.passes_threshold:
+        action = "SELL"
+        primary_analysis = sell_analysis
+    else:
+        action = "HOLD"
+        primary_analysis = buy_analysis  # Use buy for context
+
+    return action, {
+        "buy_analysis": buy_analysis,
+        "sell_analysis": sell_analysis,
+        "action": action,
+        "factors_met": primary_analysis.factors_met,
+        "confidence": primary_analysis.confidence,
+        "reasoning": primary_analysis.reasoning
+    }

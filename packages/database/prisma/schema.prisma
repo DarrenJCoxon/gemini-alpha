@@ -168,6 +168,11 @@ model CouncilSession {
   executedTradeId  String?
   createdAt        DateTime @default(now())
 
+  // Story 5.3: Multi-Factor Analysis
+  buyFactorsMet    Int?
+  sellFactorsMet   Int?
+  factorsTriggered String?  @db.Text
+
   asset Asset  @relation(fields: [assetId], references: [id])
   trade Trade? @relation(fields: [executedTradeId], references: [id])
 
