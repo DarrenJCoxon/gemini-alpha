@@ -237,6 +237,60 @@ def get_gemini_flash_model():
 
 
 @dataclass
+class OnChainConfig:
+    """
+    On-chain data provider configuration (Story 5.6).
+
+    Integrates on-chain metrics like exchange flows, whale activity,
+    stablecoin reserves, and funding rates for deeper market insight.
+    """
+
+    # CryptoQuant API (primary provider - best free tier)
+    cryptoquant_api_key: Optional[str] = field(
+        default_factory=lambda: os.getenv("CRYPTOQUANT_API_KEY")
+    )
+
+    # Santiment API (backup provider)
+    santiment_api_key: Optional[str] = field(
+        default_factory=lambda: os.getenv("SANTIMENT_API_KEY")
+    )
+
+    # Glassnode API (premium provider)
+    glassnode_api_key: Optional[str] = field(
+        default_factory=lambda: os.getenv("GLASSNODE_API_KEY")
+    )
+
+    # Cache settings
+    cache_ttl_minutes: int = field(
+        default_factory=lambda: int(os.getenv("ONCHAIN_CACHE_TTL_MINUTES", "15"))
+    )
+
+    # Data fetch settings
+    lookback_days: int = field(
+        default_factory=lambda: int(os.getenv("ONCHAIN_LOOKBACK_DAYS", "7"))
+    )
+
+    # Thresholds for signals
+    exchange_flow_spike_mult: float = field(
+        default_factory=lambda: float(os.getenv("EXCHANGE_FLOW_SPIKE_MULT", "2.0"))
+    )
+    whale_activity_threshold: int = field(
+        default_factory=lambda: int(os.getenv("WHALE_ACTIVITY_THRESHOLD", "100"))
+    )  # Number of large transactions
+    funding_rate_extreme_threshold: float = field(
+        default_factory=lambda: float(os.getenv("FUNDING_RATE_EXTREME_THRESHOLD", "0.1"))
+    )  # 0.1% per 8 hours is extreme
+
+    def is_configured(self) -> bool:
+        """Check if any on-chain provider is configured."""
+        return any([
+            self.cryptoquant_api_key,
+            self.santiment_api_key,
+            self.glassnode_api_key
+        ])
+
+
+@dataclass
 class RiskConfig:
     """
     Risk management configuration for ATR-based stop loss (Story 3.2).
@@ -372,6 +426,7 @@ class Config:
     gemini: GeminiConfig = field(default_factory=GeminiConfig)
     gemini_vision: GeminiVisionConfig = field(default_factory=GeminiVisionConfig)
     risk: RiskConfig = field(default_factory=RiskConfig)
+    onchain: OnChainConfig = field(default_factory=OnChainConfig)
     web_url: str = field(default_factory=lambda: os.getenv("WEB_URL", ""))
     debug: bool = field(
         default_factory=lambda: os.getenv("DEBUG", "").lower() == "true"

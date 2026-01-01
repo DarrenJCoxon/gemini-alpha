@@ -217,3 +217,67 @@ model SystemConfig {
 
   @@map("system_config")
 }
+
+// =============================================================================
+// ON-CHAIN DATA MODELS (Story 5.6: On-Chain Data Integration)
+// =============================================================================
+
+// Exchange inflow/outflow data for accumulation/distribution analysis
+model ExchangeFlow {
+  id              String   @id @default(cuid())
+  assetSymbol     String   @db.VarChar(20)
+  timestamp       DateTime
+  inflowUsd       Decimal  @db.Decimal(18, 2)
+  outflowUsd      Decimal  @db.Decimal(18, 2)
+  netFlowUsd      Decimal  @db.Decimal(18, 2)
+  avgNetFlow7d    Decimal? @db.Decimal(18, 2)
+  source          String   @db.VarChar(50)
+
+  @@index([assetSymbol])
+  @@index([timestamp])
+}
+
+// Large wallet transaction tracking
+model WhaleActivity {
+  id                    String   @id @default(cuid())
+  assetSymbol           String   @db.VarChar(20)
+  timestamp             DateTime
+  largeTxCount          Int
+  totalWhaleVolumeUsd   Decimal  @db.Decimal(18, 2)
+  whaleBuyVolume        Decimal? @db.Decimal(18, 2)
+  whaleSellVolume       Decimal? @db.Decimal(18, 2)
+  avgLargeTxCount7d     Int?
+  source                String   @db.VarChar(50)
+
+  @@index([assetSymbol])
+  @@index([timestamp])
+}
+
+// Perpetual futures funding rates for squeeze detection
+model FundingRate {
+  id                  String   @id @default(cuid())
+  assetSymbol         String   @db.VarChar(20)
+  timestamp           DateTime
+  exchange            String   @db.VarChar(50)
+  fundingRate         Decimal  @db.Decimal(10, 6)
+  avgFundingRate24h   Decimal? @db.Decimal(10, 6)
+  openInterestUsd     Decimal? @db.Decimal(18, 2)
+  source              String   @db.VarChar(50)
+
+  @@index([assetSymbol])
+  @@index([timestamp])
+}
+
+// Stablecoin reserves on exchanges (buying power indicator)
+model StablecoinReserves {
+  id                  String   @id @default(cuid())
+  timestamp           DateTime
+  totalReservesUsd    Decimal  @db.Decimal(18, 2)
+  usdtReserves        Decimal  @db.Decimal(18, 2)
+  usdcReserves        Decimal  @db.Decimal(18, 2)
+  change24hPct        Decimal? @db.Decimal(8, 4)
+  change7dPct         Decimal? @db.Decimal(8, 4)
+  source              String   @db.VarChar(50)
+
+  @@index([timestamp])
+}

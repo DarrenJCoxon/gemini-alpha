@@ -398,6 +398,9 @@ position_logger = logging.getLogger("position_manager")
 # Safety service logger
 safety_logger = logging.getLogger("safety_service")
 
+# On-chain ingestion logger (Story 5.6)
+onchain_logger = logging.getLogger("onchain_ingestor")
+
 
 async def run_position_check() -> dict[str, Any]:
     """
@@ -878,18 +881,121 @@ async def ingest_sentiment_data() -> dict[str, Any]:
     return stats
 
 
+async def run_onchain_ingestion() -> dict[str, Any]:
+    """
+    Run on-chain data ingestion.
+
+    Story 5.6: On-Chain Data Integration
+
+    Called every 15 minutes (aligned with council cycle).
+    Ingests:
+    - Exchange flows (accumulation/distribution)
+    - Whale activity
+    - Funding rates
+    - Stablecoin reserves
+
+    Returns:
+        Dict with ingestion statistics
+    """
+    from services.onchain_ingestor import OnChainIngestor
+
+    start_time = datetime.now(timezone.utc)
+    onchain_logger.info(f"\n{'='*60}")
+    onchain_logger.info(f"[OnChain] Starting on-chain data ingestion at {start_time.isoformat()}")
+    onchain_logger.info(f"{'='*60}")
+
+    config = get_config()
+
+    # Check if on-chain is configured
+    if not config.onchain.is_configured():
+        onchain_logger.warning("[OnChain] On-chain data not configured - skipping ingestion")
+        return {
+            "start_time": start_time.isoformat(),
+            "skipped": True,
+            "reason": "Not configured"
+        }
+
+    stats = {
+        "start_time": start_time.isoformat(),
+        "exchange_flows": 0,
+        "whale_activity": 0,
+        "funding_rates": 0,
+        "stablecoin_reserves": 0,
+        "errors": [],
+    }
+
+    ingestor = OnChainIngestor()
+
+    try:
+        initialized = await ingestor.initialize()
+
+        if not initialized:
+            onchain_logger.warning("[OnChain] Failed to initialize ingestor")
+            stats["errors"].append("Failed to initialize")
+            return stats
+
+        # Get active asset symbols
+        session_maker = get_session_maker()
+        async with session_maker() as session:
+            assets = await get_active_assets(session)
+            symbols = [asset.symbol for asset in assets]
+
+        if not symbols:
+            onchain_logger.warning("[OnChain] No active assets to ingest")
+            return stats
+
+        onchain_logger.info(f"[OnChain] Ingesting on-chain data for {len(symbols)} assets")
+
+        # Run full ingestion
+        results = await ingestor.run_full_ingestion(symbols)
+        stats.update(results)
+
+    except Exception as e:
+        error_msg = f"On-chain ingestion error: {str(e)}"
+        onchain_logger.error(f"[OnChain] {error_msg}")
+        stats["errors"].append(error_msg)
+
+    finally:
+        await ingestor.close()
+
+    # Calculate duration
+    end_time = datetime.now(timezone.utc)
+    duration = (end_time - start_time).total_seconds()
+    stats["end_time"] = end_time.isoformat()
+    stats["duration_seconds"] = duration
+
+    total_records = (
+        stats["exchange_flows"] +
+        stats["whale_activity"] +
+        stats["funding_rates"] +
+        stats["stablecoin_reserves"]
+    )
+
+    onchain_logger.info(f"[OnChain] On-chain ingestion complete")
+    onchain_logger.info(
+        f"[OnChain] Records: {total_records} total "
+        f"(Flows: {stats['exchange_flows']}, Whales: {stats['whale_activity']}, "
+        f"Funding: {stats['funding_rates']}, Stables: {stats['stablecoin_reserves']})"
+    )
+    onchain_logger.info(f"[OnChain] Duration: {duration:.2f}s")
+    onchain_logger.info(f"{'='*60}\n")
+
+    return stats
+
+
 def create_scheduler() -> AsyncIOScheduler:
     """
     Create and configure the APScheduler instance.
 
-    Job Execution Order (Story 3.3, 3.4 - CRITICAL):
-    1. :00, :15, :30, :45 - Data ingestion (Kraken + Sentiment)
+    Job Execution Order (Story 3.3, 3.4, 5.6 - CRITICAL):
+    1. :00, :15, :30, :45 - Data ingestion (Kraken + Sentiment + On-Chain)
     2. :03, :18, :33, :48 - Position check (stops/breakeven/trailing)
     3. :05, :20, :35, :50 - Council cycle (analysis + new entries)
                            Includes safety checks (is_trading_enabled, enforce_max_drawdown)
 
     Position check runs BEFORE Council to protect capital first.
     Safety checks are integrated into Council cycle.
+    On-chain data is available for Council analysis.
 
     Returns:
         Configured AsyncIOScheduler
@@ -925,6 +1031,21 @@ def create_scheduler() -> AsyncIOScheduler:
 
     sentiment_logger.info(
         f"Scheduler configured with Sentiment ingestion at minutes: {config.scheduler.ingest_cron_minutes}"
+    )
+
+    # Add the On-Chain ingestion job (Story 5.6)
+    # Runs at the same 15-minute intervals as other data ingestion
+    scheduler.add_job(
+        run_onchain_ingestion,
+        CronTrigger(minute=config.scheduler.ingest_cron_minutes),
+        id="onchain_ingest",
+        name="On-Chain Data Ingestion",
+        replace_existing=True,
+        max_instances=1,  # Prevent overlapping executions
+    )
+
+    onchain_logger.info(
+        f"Scheduler configured with On-Chain ingestion at minutes: {config.scheduler.ingest_cron_minutes}"
     )
 
     # Add the Position check job (Story 3.3)
