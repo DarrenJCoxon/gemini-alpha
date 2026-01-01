@@ -7,7 +7,7 @@ variables with validation and sensible defaults.
 
 import os
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Optional, List
 
 from dotenv import load_dotenv
 
@@ -416,64 +416,117 @@ def get_gemini_pro_vision_model():
 
 
 @dataclass
-class AssetUniverseConfig:
+class ScaleConfig:
     """
-    Asset universe configuration (Story 5.2).
+    Position scaling configuration (Story 5.4).
 
-    Controls the quality asset universe with tiered allocation limits.
-    Tier 3 assets are configurable via environment variable.
+    Controls gradual entry/exit to achieve better average prices
+    and reduce timing risk.
+
+    Scale-in: 33% immediate, 33% at -5% drop, 33% at -10% capitulation
+    Scale-out: 33% at +10% profit, 33% at +20% profit, 33% trailing stop
     """
 
-    # Tier 3 configurable assets (comma-separated)
-    tier_3_assets: str = field(
-        default_factory=lambda: os.getenv("TIER_3_ASSETS", "AAVEUSD,UNIUSD,ARBUSD")
+    # Number of scale levels
+    num_scale_in_levels: int = field(
+        default_factory=lambda: int(os.getenv("NUM_SCALE_IN_LEVELS", "3"))
+    )
+    num_scale_out_levels: int = field(
+        default_factory=lambda: int(os.getenv("NUM_SCALE_OUT_LEVELS", "3"))
     )
 
-    # Allocation limits (percentage of portfolio)
-    tier_1_allocation: float = field(
-        default_factory=lambda: float(os.getenv("TIER_1_ALLOCATION", "60"))
+    # Scale-in allocation percentages (must sum to 100)
+    scale_in_pct_1: float = field(
+        default_factory=lambda: float(os.getenv("SCALE_IN_PCT_1", "33.33"))
     )
-    tier_2_allocation: float = field(
-        default_factory=lambda: float(os.getenv("TIER_2_ALLOCATION", "30"))
+    scale_in_pct_2: float = field(
+        default_factory=lambda: float(os.getenv("SCALE_IN_PCT_2", "33.33"))
     )
-    tier_3_allocation: float = field(
-        default_factory=lambda: float(os.getenv("TIER_3_ALLOCATION", "10"))
-    )
-
-    # Minimum 24h volume requirements by tier (in USD)
-    min_volume_24h_tier1: float = field(
-        default_factory=lambda: float(os.getenv("MIN_VOLUME_TIER1", "1000000000"))
-    )
-    min_volume_24h_tier2: float = field(
-        default_factory=lambda: float(os.getenv("MIN_VOLUME_TIER2", "100000000"))
-    )
-    min_volume_24h_tier3: float = field(
-        default_factory=lambda: float(os.getenv("MIN_VOLUME_TIER3", "50000000"))
+    scale_in_pct_3: float = field(
+        default_factory=lambda: float(os.getenv("SCALE_IN_PCT_3", "33.34"))
     )
 
-    def get_tier_3_list(self) -> list[str]:
-        """Parse tier 3 assets from comma-separated string."""
-        if not self.tier_3_assets:
-            return []
-        return [a.strip().upper() for a in self.tier_3_assets.split(",") if a.strip()]
+    # Scale-in trigger levels (% below first entry)
+    scale_in_drop_2: float = field(
+        default_factory=lambda: float(os.getenv("SCALE_IN_DROP_2", "5.0"))
+    )  # 5% drop triggers scale 2
+    scale_in_drop_3: float = field(
+        default_factory=lambda: float(os.getenv("SCALE_IN_DROP_3", "10.0"))
+    )  # 10% drop triggers scale 3 (capitulation)
+
+    # Scale-out allocation percentages
+    scale_out_pct_1: float = field(
+        default_factory=lambda: float(os.getenv("SCALE_OUT_PCT_1", "33.33"))
+    )
+    scale_out_pct_2: float = field(
+        default_factory=lambda: float(os.getenv("SCALE_OUT_PCT_2", "33.33"))
+    )
+    scale_out_pct_3: float = field(
+        default_factory=lambda: float(os.getenv("SCALE_OUT_PCT_3", "33.34"))
+    )
+
+    # Scale-out profit targets (% above average entry)
+    scale_out_profit_1: float = field(
+        default_factory=lambda: float(os.getenv("SCALE_OUT_PROFIT_1", "10.0"))
+    )  # 10% profit = first exit
+    scale_out_profit_2: float = field(
+        default_factory=lambda: float(os.getenv("SCALE_OUT_PROFIT_2", "20.0"))
+    )  # 20% profit = second exit
+    # scale_out_3 is trailing stop or extended target
+
+    # Timeout for pending scales (hours)
+    scale_timeout_hours: int = field(
+        default_factory=lambda: int(os.getenv("SCALE_TIMEOUT_HOURS", "168"))
+    )  # 7 days default
+
+    def get_scale_in_percentages(self) -> List[float]:
+        """Get list of scale-in percentages."""
+        return [self.scale_in_pct_1, self.scale_in_pct_2, self.scale_in_pct_3]
+
+    def get_scale_out_percentages(self) -> List[float]:
+        """Get list of scale-out percentages."""
+        return [self.scale_out_pct_1, self.scale_out_pct_2, self.scale_out_pct_3]
+
+    def get_scale_in_drop_triggers(self) -> List[float]:
+        """Get list of scale-in drop trigger percentages (0 for first scale)."""
+        return [0.0, self.scale_in_drop_2, self.scale_in_drop_3]
+
+    def get_scale_out_profit_triggers(self) -> List[float]:
+        """Get list of scale-out profit trigger percentages (0 for trailing)."""
+        return [self.scale_out_profit_1, self.scale_out_profit_2, 0.0]
 
     def validate(self) -> None:
         """
-        Validate asset universe configuration.
+        Validate scale configuration values.
 
         Raises:
             ValueError: If configuration values are invalid
         """
-        total_allocation = self.tier_1_allocation + self.tier_2_allocation + self.tier_3_allocation
-        if total_allocation > 100:
+        # Validate scale-in percentages sum to 100
+        scale_in_sum = sum(self.get_scale_in_percentages())
+        if abs(scale_in_sum - 100.0) > 0.1:
             raise ValueError(
-                f"Total tier allocation exceeds 100%: "
-                f"T1={self.tier_1_allocation}% + T2={self.tier_2_allocation}% + "
-                f"T3={self.tier_3_allocation}% = {total_allocation}%"
+                f"Scale-in percentages must sum to 100, got {scale_in_sum}"
             )
 
-        if self.tier_1_allocation < 0 or self.tier_2_allocation < 0 or self.tier_3_allocation < 0:
-            raise ValueError("Tier allocation percentages cannot be negative")
+        # Validate scale-out percentages sum to 100
+        scale_out_sum = sum(self.get_scale_out_percentages())
+        if abs(scale_out_sum - 100.0) > 0.1:
+            raise ValueError(
+                f"Scale-out percentages must sum to 100, got {scale_out_sum}"
+            )
+
+        # Validate drop triggers are positive and ascending
+        if self.scale_in_drop_2 <= 0 or self.scale_in_drop_3 <= 0:
+            raise ValueError("Scale-in drop triggers must be positive")
+        if self.scale_in_drop_3 <= self.scale_in_drop_2:
+            raise ValueError("Scale-in drop 3 must be greater than drop 2")
+
+        # Validate profit triggers are positive and ascending
+        if self.scale_out_profit_1 <= 0 or self.scale_out_profit_2 <= 0:
+            raise ValueError("Scale-out profit triggers must be positive")
+        if self.scale_out_profit_2 <= self.scale_out_profit_1:
+            raise ValueError("Scale-out profit 2 must be greater than profit 1")
 
 
 @dataclass
@@ -489,7 +542,7 @@ class Config:
     gemini: GeminiConfig = field(default_factory=GeminiConfig)
     gemini_vision: GeminiVisionConfig = field(default_factory=GeminiVisionConfig)
     risk: RiskConfig = field(default_factory=RiskConfig)
-    multi_factor: MultiFactorConfig = field(default_factory=MultiFactorConfig)
+    scale: ScaleConfig = field(default_factory=ScaleConfig)
     web_url: str = field(default_factory=lambda: os.getenv("WEB_URL", ""))
     debug: bool = field(
         default_factory=lambda: os.getenv("DEBUG", "").lower() == "true"
