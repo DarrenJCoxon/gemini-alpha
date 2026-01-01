@@ -35,6 +35,8 @@ from services.data_loader import (
     load_asset_by_symbol,
 )
 from services.session_logger import log_council_session, get_recent_sessions
+from services.risk_validator import get_risk_validator
+from services.execution import get_all_open_positions
 from api.routes import safety_router
 
 # Load environment variables
@@ -610,4 +612,196 @@ async def get_asset_sessions(
         raise HTTPException(
             status_code=500,
             detail=f"Failed to get sessions: {str(e)}",
+        )
+
+
+# =============================================================================
+# Story 5.5: Risk Parameter Optimization - Risk Status API
+# =============================================================================
+
+
+@app.get("/api/risk/status")
+async def get_risk_status() -> dict[str, Any]:
+    """
+    Get current risk status across all parameters.
+
+    Story 5.5: Risk Parameter Optimization
+
+    Returns comprehensive risk metrics including:
+    - Drawdown utilization
+    - Position concentration
+    - Correlation exposure
+    - Daily loss tracking
+    - Overall risk level
+    - Alerts and recommendations
+
+    Returns:
+        Dict with risk status, metrics, alerts, and recommendations
+    """
+    logger.info("Risk status requested via API")
+
+    try:
+        validator = get_risk_validator()
+
+        # Get current portfolio state
+        session_maker = get_session_maker()
+        async with session_maker() as session:
+            # Get open positions
+            open_trades = await get_all_open_positions(session)
+
+            # Calculate portfolio value and positions list
+            positions = []
+            total_value = 0.0
+
+            for trade in open_trades:
+                # Get current price for position value
+                # For simplicity, use entry_price * size as position value
+                position_value = float(trade.entry_price * trade.size)
+                total_value += position_value
+
+                # Get asset symbol
+                from models import Asset
+                from sqlmodel import select
+                asset_result = await session.execute(
+                    select(Asset).where(Asset.id == trade.asset_id)
+                )
+                asset = asset_result.scalar_one_or_none()
+
+                if asset:
+                    positions.append({
+                        "symbol": asset.symbol,
+                        "value": position_value,
+                        "trade_id": trade.id,
+                    })
+
+            # Estimate portfolio value (positions + assumed cash)
+            # In production, this would come from exchange balance
+            estimated_portfolio = max(total_value * 2, 10000.0)  # Assume 50% deployed
+
+            # Calculate daily P&L (simplified - would need trade history)
+            daily_pnl = 0.0
+
+            # Get risk status
+            status = await validator.get_risk_status(
+                portfolio_value=estimated_portfolio,
+                current_positions=positions,
+                daily_pnl=daily_pnl,
+                session=session,
+            )
+
+            return {
+                "status": status.overall_risk_level.value,
+                "can_trade": status.can_trade,
+                "metrics": {
+                    "drawdown": {
+                        "current": status.current_drawdown_pct,
+                        "limit": status.max_drawdown_pct,
+                        "utilization": status.drawdown_utilization,
+                    },
+                    "position_concentration": {
+                        "largest_pct": status.largest_position_pct,
+                        "limit": status.max_single_position_pct,
+                        "utilization": status.position_concentration_utilization,
+                    },
+                    "correlation": {
+                        "exposure_pct": status.correlated_exposure_pct,
+                        "limit": status.max_correlated_exposure_pct,
+                        "utilization": status.correlation_utilization,
+                    },
+                    "daily_loss": {
+                        "current_pct": status.daily_loss_pct,
+                        "limit": status.daily_loss_limit_pct,
+                        "utilization": status.daily_loss_utilization,
+                    },
+                },
+                "alerts": status.alerts,
+                "recommendations": status.recommendations,
+                "open_positions": len(positions),
+                "estimated_portfolio_value": estimated_portfolio,
+            }
+
+    except Exception as e:
+        logger.error(f"Failed to get risk status: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get risk status: {str(e)}",
+        )
+
+
+@app.post("/api/risk/validate")
+async def validate_trade_risk(
+    symbol: str,
+    requested_size_usd: float,
+    portfolio_value: Optional[float] = None,
+) -> dict[str, Any]:
+    """
+    Validate a potential trade against risk limits.
+
+    Story 5.5: Risk Parameter Optimization
+
+    Args:
+        symbol: Trading pair symbol (e.g., "SOLUSD")
+        requested_size_usd: Requested position size in USD
+        portfolio_value: Optional portfolio value (estimated if not provided)
+
+    Returns:
+        Dict with validation result and any adjustments
+    """
+    logger.info(f"Trade risk validation requested for {symbol}: ${requested_size_usd}")
+
+    try:
+        validator = get_risk_validator()
+
+        session_maker = get_session_maker()
+        async with session_maker() as session:
+            # Get open positions
+            open_trades = await get_all_open_positions(session)
+
+            # Calculate positions list
+            positions = []
+            total_value = 0.0
+
+            for trade in open_trades:
+                position_value = float(trade.entry_price * trade.size)
+                total_value += position_value
+
+                from models import Asset
+                from sqlmodel import select
+                asset_result = await session.execute(
+                    select(Asset).where(Asset.id == trade.asset_id)
+                )
+                asset = asset_result.scalar_one_or_none()
+
+                if asset:
+                    positions.append({
+                        "symbol": asset.symbol,
+                        "value": position_value,
+                    })
+
+            # Use provided portfolio value or estimate
+            pv = portfolio_value or max(total_value * 2, 10000.0)
+
+            # Validate the trade
+            result = await validator.validate_trade(
+                symbol=symbol,
+                requested_size_usd=requested_size_usd,
+                portfolio_value=pv,
+                current_positions=positions,
+                daily_pnl=0.0,
+                session=session,
+            )
+
+            return {
+                "approved": result.approved,
+                "max_allowed_size": float(result.max_allowed_size),
+                "rejection_reasons": result.rejection_reasons,
+                "warnings": result.warnings,
+                "adjustments": result.risk_adjustments,
+            }
+
+    except Exception as e:
+        logger.error(f"Failed to validate trade risk: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to validate trade risk: {str(e)}",
         )
