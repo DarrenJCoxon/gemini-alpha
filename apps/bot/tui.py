@@ -527,9 +527,6 @@ class TradingDashboard:
         help_text.append(" r", style="cyan bold")
         help_text.append(" refresh ", style="dim")
         help_text.append("│", style="dim")
-        help_text.append(" c", style="cyan bold")
-        help_text.append(" council ", style="dim")
-        help_text.append("│", style="dim")
         help_text.append(" t", style="cyan bold")
         help_text.append(" test ", style="dim")
         help_text.append("│", style="dim")
@@ -537,7 +534,9 @@ class TradingDashboard:
         help_text.append(" pause ", style="dim")
         help_text.append("│", style="dim")
         help_text.append(" q", style="cyan bold")
-        help_text.append(" quit", style="dim")
+        help_text.append(" quit ", style="dim")
+        help_text.append("│", style="dim")
+        help_text.append(" auto-refresh 30s", style="dim italic")
         return help_text
 
     def create_layout(self) -> Layout:
@@ -580,7 +579,8 @@ class TradingDashboard:
 
     async def display_dashboard(self):
         """Display the main dashboard using full-screen Layout"""
-        console.clear()
+        # Clear screen and move cursor to top-left
+        print("\033[2J\033[H", end="", flush=True)
 
         # Fetch all data
         status = await self.get_system_status()
@@ -671,9 +671,6 @@ class TradingDashboard:
         try:
             while self.running:
                 await self.display_dashboard()
-
-                # Wait for input with timeout
-                console.print("\n[dim]Enter command (or wait 30s for refresh):[/dim] ", end="")
 
                 try:
                     # Use asyncio to handle input with timeout
