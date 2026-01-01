@@ -266,7 +266,9 @@ class TestMasterNode:
 
         # Stub implementation returns HOLD
         assert decision["action"] == "HOLD"
-        assert decision["confidence"] == 50
+        # Story 5.1: Confidence varies based on regime calculations
+        # For HOLD decisions, confidence should be in reasonable range
+        assert 0 <= decision["confidence"] <= 100
 
     def test_master_node_valid_action_values(self):
         """Test master_node action is one of valid options."""
@@ -300,8 +302,12 @@ class TestMasterNode:
 
         # Story 2.4: Updated to match real implementation behavior
         # Master node now provides pre-validation reasoning
+        # Story 5.1: Reasoning may come from LLM or pre-validation
         reasoning = result["final_decision"]["reasoning"]
-        assert "Pre-validation" in reasoning or "HOLD" in reasoning
+        assert len(reasoning) > 0  # Reasoning is non-empty
+        # Should contain meaningful content about the decision
+        reasoning_lower = reasoning.lower()
+        assert "hold" in reasoning_lower or "decision" in reasoning_lower or "validation" in reasoning_lower
 
 
 class TestNodeIntegration:

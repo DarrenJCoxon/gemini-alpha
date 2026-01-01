@@ -2,16 +2,23 @@
 Master Synthesis Node.
 
 Story 2.4: Master Node & Signal Logging
+Story 5.1: Market Regime Filter
 
 This node synthesizes all agent analyses into a final trading decision,
 applying contrarian trading principles and strict risk management rules.
 
 The Master Node:
 1. Receives outputs from Sentiment, Technical, and Vision agents
-2. Pre-validates decision using strict logic rules
-3. Calls Gemini Pro LLM for synthesis and reasoning
-4. Applies safety override if LLM disagrees with pre-validation
-5. Returns final decision with confidence and reasoning
+2. Classifies market regime (BULL/BEAR/CHOP) from daily candles (Story 5.1)
+3. Pre-validates decision using regime-adjusted logic rules
+4. Calls Gemini Pro LLM for synthesis and reasoning
+5. Applies safety override if LLM disagrees with pre-validation
+6. Returns final decision with confidence and reasoning
+
+Story 5.1 additions:
+- Regime classification before decision making
+- Regime-adjusted thresholds for BUY conditions
+- Regime logged in state for audit trail
 """
 
 import json
@@ -26,7 +33,13 @@ from services.master_prompts import (
 )
 from services.decision_logic import (
     pre_validate_decision,
+    pre_validate_decision_with_regime,
     calculate_decision_confidence,
+)
+from services.market_regime import (
+    classify_market_regime,
+    get_default_regime,
+    MarketRegime,
 )
 
 logger = logging.getLogger(__name__)
@@ -100,22 +113,25 @@ def master_node(state: GraphState) -> Dict[str, Any]:
     This node synthesizes all agent analyses and makes the final
     trading decision using a two-layer safety system:
 
-    1. Pre-validation: Pure logic check before LLM call
-    2. Post-validation: Override if LLM disagrees with pre-validation
+    1. Regime Detection: Classify market as BULL/BEAR/CHOP (Story 5.1)
+    2. Pre-validation: Regime-adjusted logic check before LLM call
+    3. Post-validation: Override if LLM disagrees with pre-validation
 
     Args:
         state: Current GraphState with all agent analyses
 
     Returns:
-        Dict with final_decision field populated
+        Dict with final_decision and regime_analysis fields populated
 
     Note:
         Returns dict with only the fields to update (LangGraph pattern),
         not the full state. LangGraph merges this with existing state.
 
-    Decision Logic:
-        BUY = (fear_score < 20) AND (technical = "BULLISH") AND (vision_valid)
-        SELL = (fear_score > 80) OR (technical = "BEARISH" with strength > 70)
+    Decision Logic (regime-adjusted, Story 5.1):
+        BULL: BUY = (fear < 30) AND (technical = "BULLISH") AND (vision_valid)
+        BEAR: BUY = (fear < 20) AND (technical strength >= 65) AND (vision_valid)
+        CHOP: BUY = (fear < 15) AND (technical strength >= 75) AND (vision_valid)
+        SELL = (fear > 80) OR (technical = "BEARISH" with strength > 70)
         HOLD = All other cases
 
     Safety:
@@ -134,9 +150,25 @@ def master_node(state: GraphState) -> Dict[str, Any]:
     logger.debug(f"[MasterNode] Technical: {technical}")
     logger.debug(f"[MasterNode] Vision: {vision}")
 
-    # Pre-validation safety check
-    suggested_action, validation_reasons = pre_validate_decision(
-        sentiment, technical, vision
+    # Story 5.1: Classify market regime from daily candles
+    daily_candles = state.get("daily_candles", [])
+    if len(daily_candles) >= 200:
+        regime_analysis = classify_market_regime(daily_candles)
+        logger.info(f"[MasterNode] Regime: {regime_analysis.regime.value} ({regime_analysis.reasoning})")
+    else:
+        # Default to CHOP if insufficient data
+        regime_analysis = get_default_regime()
+        logger.warning(
+            f"[MasterNode] Insufficient daily candles ({len(daily_candles)}), "
+            f"defaulting to {regime_analysis.regime.value} regime"
+        )
+
+    # Convert regime analysis to dict for state
+    regime_analysis_dict = regime_analysis.to_dict()
+
+    # Pre-validation safety check with regime adjustments (Story 5.1)
+    suggested_action, validation_reasons, adjustments = pre_validate_decision_with_regime(
+        sentiment, technical, vision, regime_analysis_dict
     )
     logger.info(f"[MasterNode] Pre-validation suggests: {suggested_action}")
     for reason in validation_reasons:
@@ -222,8 +254,13 @@ def master_node(state: GraphState) -> Dict[str, Any]:
 
     logger.info(
         f"[MasterNode] Final Decision: {final_decision['action']} "
-        f"(Confidence: {final_decision['confidence']}%)"
+        f"(Confidence: {final_decision['confidence']}%) "
+        f"[Regime: {regime_analysis_dict['regime']}]"
     )
 
     # Return only the fields to update (LangGraph merge pattern)
-    return {"final_decision": final_decision}
+    # Story 5.1: Include regime_analysis in response for logging
+    return {
+        "final_decision": final_decision,
+        "regime_analysis": regime_analysis_dict
+    }

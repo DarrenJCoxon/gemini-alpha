@@ -2,9 +2,13 @@
 Data Loader Utilities for the Trading Bot.
 
 Story 2.2: Sentiment & Technical Agents
+Story 5.1: Market Regime Filter
 
 This module provides utilities for loading candle and sentiment data
 from the database for use by the Council of AI Agents.
+
+Story 5.1 adds:
+- load_daily_candles_for_regime(): Loads daily candles for regime detection
 """
 
 from typing import List, Dict, Any, Optional
@@ -229,3 +233,45 @@ async def get_active_assets(
     finally:
         if own_session:
             await session.close()
+
+
+async def load_daily_candles_for_regime(
+    asset_symbol: str,
+    days: int = 250,
+) -> List[Dict[str, Any]]:
+    """
+    Load daily candles for market regime detection.
+
+    Story 5.1: Market Regime Filter
+
+    Fetches daily OHLCV data directly from Kraken for regime analysis.
+    This is separate from the 15-minute candles used for technical analysis.
+
+    Args:
+        asset_symbol: Trading pair symbol (e.g., "BTCUSD")
+        days: Number of days of history to fetch (default: 250 for 200 DMA + buffer)
+
+    Returns:
+        List of daily candle dicts with keys: timestamp, open, high, low, close, volume
+        Sorted oldest-first for technical analysis
+
+    Note:
+        This function fetches data directly from Kraken API rather than
+        from the database, as daily candles are not stored in the DB.
+        Consider caching results during a council cycle to reduce API calls.
+    """
+    from services.kraken import get_kraken_client
+
+    try:
+        kraken_client = get_kraken_client()
+        daily_candles = await kraken_client.fetch_daily_ohlcv_for_asset(
+            db_symbol=asset_symbol,
+            limit=days
+        )
+
+        logger.info(f"Loaded {len(daily_candles)} daily candles for {asset_symbol} regime detection")
+        return daily_candles
+
+    except Exception as e:
+        logger.error(f"Error loading daily candles for {asset_symbol}: {e}")
+        return []

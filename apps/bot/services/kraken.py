@@ -349,6 +349,104 @@ class KrakenClient:
         kraken_symbol = self.convert_symbol_to_kraken(db_symbol)
         return await self.fetch_ohlcv(kraken_symbol, timeframe, limit)
 
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+        retry=retry_if_exception_type((ccxt.NetworkError, ccxt.RequestTimeout)),
+        before_sleep=before_sleep_log(logger, logging.WARNING),
+    )
+    async def fetch_daily_ohlcv(
+        self,
+        symbol: str,
+        limit: int = 250
+    ) -> list[dict[str, Any]]:
+        """
+        Fetch daily OHLCV for market regime analysis.
+
+        Story 5.1: Used to calculate 200 DMA and detect Golden/Death crosses.
+
+        Args:
+            symbol: Trading pair in ccxt format (e.g., "SOL/USD")
+            limit: Number of daily candles to fetch (default: 250 for 200 DMA + buffer)
+
+        Returns:
+            List of daily OHLCV dicts with keys: timestamp, open, high, low, close, volume
+
+        Raises:
+            ccxt.NetworkError: On network issues (will be retried)
+            ccxt.RequestTimeout: On timeout (will be retried)
+            ccxt.BadSymbol: If symbol is invalid
+        """
+        await self.initialize()
+        if self.exchange is None:
+            raise RuntimeError("Exchange not initialized")
+
+        # Check circuit breaker
+        if not self.circuit_breaker.can_proceed():
+            raise RuntimeError("Circuit breaker is open, skipping request")
+
+        try:
+            # Fetch daily OHLCV data
+            ohlcv_data = await self.exchange.fetch_ohlcv(
+                symbol,
+                timeframe='1d',
+                limit=limit,
+            )
+
+            self.circuit_breaker.record_success()
+
+            # Convert to dict format - use float for pandas TA compatibility
+            result = []
+            for ohlcv in ohlcv_data:
+                # Use naive datetime for consistency
+                ts = datetime.fromtimestamp(ohlcv[0] / 1000, tz=timezone.utc).replace(tzinfo=None)
+                result.append({
+                    "timestamp": ts,
+                    "open": float(ohlcv[1]),
+                    "high": float(ohlcv[2]),
+                    "low": float(ohlcv[3]),
+                    "close": float(ohlcv[4]),
+                    "volume": float(ohlcv[5]),
+                    "timeframe": "1d",
+                })
+
+            logger.info(f"Fetched {len(result)} daily candles for {symbol}")
+            return result
+
+        except ccxt.BadSymbol as e:
+            logger.error(f"Invalid symbol {symbol}: {e}")
+            raise
+
+        except ccxt.RateLimitExceeded:
+            logger.warning(f"Rate limit exceeded for {symbol}, backing off 60 seconds")
+            self.circuit_breaker.record_failure()
+            await asyncio.sleep(60)
+            raise ccxt.NetworkError("Rate limit exceeded, please retry")
+
+        except Exception as e:
+            self.circuit_breaker.record_failure()
+            raise
+
+    async def fetch_daily_ohlcv_for_asset(
+        self,
+        db_symbol: str,
+        limit: int = 250
+    ) -> list[dict[str, Any]]:
+        """
+        Fetch daily OHLCV using database symbol format.
+
+        Story 5.1: Convenience method for regime detection.
+
+        Args:
+            db_symbol: Database symbol (e.g., "BTCUSD", "SOLUSD")
+            limit: Number of daily candles (default: 250 for 200 DMA)
+
+        Returns:
+            List of daily OHLCV dicts
+        """
+        kraken_symbol = self.convert_symbol_to_kraken(db_symbol)
+        return await self.fetch_daily_ohlcv(kraken_symbol, limit)
+
 
 # Global client instance
 _kraken_client: Optional[KrakenClient] = None

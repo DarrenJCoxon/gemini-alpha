@@ -58,12 +58,13 @@ class TestCouncilTestEndpoint:
         assert data["decision_action"] == "HOLD"
 
     def test_council_test_decision_confidence(self, client):
-        """Test council test returns 50% confidence (stub)."""
+        """Test council test returns valid confidence."""
         response = client.get("/api/council/test")
 
         assert response.status_code == 200
         data = response.json()
-        assert data["decision_confidence"] == 50
+        # Story 5.1: Confidence varies based on regime calculations
+        assert 0 <= data["decision_confidence"] <= 100
 
     def test_council_test_all_nodes_executed(self, client):
         """Test council test confirms all nodes executed."""
@@ -302,7 +303,8 @@ class TestCouncilSessionStubBehavior:
 
         data = response.json()
         assert data["final_decision"]["action"] == "HOLD"
-        assert data["final_decision"]["confidence"] == 50
+        # Story 5.1: Confidence varies based on regime calculations
+        assert 0 <= data["final_decision"]["confidence"] <= 100
 
     def test_session_decision_has_timestamp(self, client):
         """Test session decision includes timestamp."""

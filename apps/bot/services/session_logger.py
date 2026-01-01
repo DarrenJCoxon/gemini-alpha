@@ -89,6 +89,14 @@ async def log_council_session(
     else:
         vision_confidence_decimal = None
 
+    # Story 5.1: Extract regime information
+    regime = state.get("regime_analysis") or {}
+    market_regime = regime.get("regime")
+    regime_confidence = int(regime.get("confidence", 0)) if regime.get("confidence") else None
+    price_vs_200dma = None
+    if regime.get("price_vs_200dma") is not None:
+        price_vs_200dma = Decimal(str(regime.get("price_vs_200dma")))
+
     # Create session record
     council_session = CouncilSession(
         asset_id=asset_id,
@@ -101,6 +109,10 @@ async def log_council_session(
         final_decision=final_decision_enum,
         reasoning_log=decision.get("reasoning", "No reasoning provided"),
         executed_trade_id=None,  # Paper Trading - no trade execution
+        # Story 5.1: Market Regime fields
+        market_regime=market_regime,
+        regime_confidence=regime_confidence,
+        price_vs_200dma=price_vs_200dma,
     )
 
     session.add(council_session)
