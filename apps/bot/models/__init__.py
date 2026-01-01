@@ -12,6 +12,7 @@ from .sentiment import SentimentLog
 from .council import CouncilSession
 from .trade import Trade
 from .system_config import SystemConfig, SystemStatus
+from .portfolio import PortfolioSnapshot
 
 __all__ = [
     # Enums
@@ -27,4 +28,5 @@ __all__ = [
     "CouncilSession",
     "Trade",
     "SystemConfig",
+    "PortfolioSnapshot",
 ]

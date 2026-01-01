@@ -295,6 +295,92 @@ class RiskConfig:
 
 
 @dataclass
+class EnhancedRiskConfig:
+    """
+    Enhanced risk management configuration (Story 5.5).
+
+    Tighter parameters for capital preservation:
+    - Maximum portfolio drawdown (reduced from 20% to 15%)
+    - Per-trade risk (reduced from 2% to 1.5%)
+    - Maximum single position size (10%)
+    - Maximum correlated exposure (30%)
+    - Daily loss limit (5%)
+    """
+
+    # Maximum Portfolio Drawdown (reduced from 20% to 15%)
+    max_drawdown_pct: float = field(
+        default_factory=lambda: float(os.getenv("MAX_DRAWDOWN_PCT", "15.0"))
+    )
+
+    # Per-Trade Risk (reduced from 2% to 1.5%)
+    per_trade_risk_pct: float = field(
+        default_factory=lambda: float(os.getenv("PER_TRADE_RISK_PCT", "1.5"))
+    )
+
+    # Maximum Single Position Size (new)
+    max_single_position_pct: float = field(
+        default_factory=lambda: float(os.getenv("MAX_SINGLE_POSITION_PCT", "10.0"))
+    )
+
+    # Maximum Correlated Exposure (new)
+    max_correlated_exposure_pct: float = field(
+        default_factory=lambda: float(os.getenv("MAX_CORRELATED_EXPOSURE_PCT", "30.0"))
+    )
+
+    # Correlation threshold to consider assets "correlated"
+    correlation_threshold: float = field(
+        default_factory=lambda: float(os.getenv("CORRELATION_THRESHOLD", "0.7"))
+    )
+
+    # Alert threshold (percentage of limit)
+    alert_threshold_pct: float = field(
+        default_factory=lambda: float(os.getenv("RISK_ALERT_THRESHOLD_PCT", "80.0"))
+    )
+
+    # Daily loss limit (stop trading for day if reached)
+    daily_loss_limit_pct: float = field(
+        default_factory=lambda: float(os.getenv("DAILY_LOSS_LIMIT_PCT", "5.0"))
+    )
+
+    # Existing ATR-based stop loss settings
+    atr_period: int = field(
+        default_factory=lambda: int(os.getenv("RISK_ATR_PERIOD", "14"))
+    )
+    atr_multiplier: float = field(
+        default_factory=lambda: float(os.getenv("RISK_ATR_MULTIPLIER", "2.0"))
+    )
+    max_stop_loss_pct: float = field(
+        default_factory=lambda: float(os.getenv("RISK_MAX_STOP_LOSS_PCT", "15.0"))
+    )
+    min_stop_loss_pct: float = field(
+        default_factory=lambda: float(os.getenv("RISK_MIN_STOP_LOSS_PCT", "2.0"))
+    )
+
+    def validate(self) -> None:
+        """Validate risk configuration values."""
+        if not (1.0 <= self.max_drawdown_pct <= 50.0):
+            raise ValueError(f"Max drawdown must be 1-50%, got {self.max_drawdown_pct}")
+
+        if not (0.1 <= self.per_trade_risk_pct <= 5.0):
+            raise ValueError(f"Per-trade risk must be 0.1-5%, got {self.per_trade_risk_pct}")
+
+        if not (1.0 <= self.max_single_position_pct <= 25.0):
+            raise ValueError(f"Max position must be 1-25%, got {self.max_single_position_pct}")
+
+        if not (10.0 <= self.max_correlated_exposure_pct <= 100.0):
+            raise ValueError(f"Correlated exposure must be 10-100%, got {self.max_correlated_exposure_pct}")
+
+        if not (1.0 <= self.daily_loss_limit_pct <= 20.0):
+            raise ValueError(f"Daily loss limit must be 1-20%, got {self.daily_loss_limit_pct}")
+
+        if not (0.5 <= self.correlation_threshold <= 1.0):
+            raise ValueError(f"Correlation threshold must be 0.5-1.0, got {self.correlation_threshold}")
+
+        if not (50.0 <= self.alert_threshold_pct <= 99.0):
+            raise ValueError(f"Alert threshold must be 50-99%, got {self.alert_threshold_pct}")
+
+
+@dataclass
 class GeminiVisionConfig:
     """
     Google Gemini Pro Vision configuration for Chart Analysis (Story 2.3).
@@ -372,6 +458,7 @@ class Config:
     gemini: GeminiConfig = field(default_factory=GeminiConfig)
     gemini_vision: GeminiVisionConfig = field(default_factory=GeminiVisionConfig)
     risk: RiskConfig = field(default_factory=RiskConfig)
+    enhanced_risk: EnhancedRiskConfig = field(default_factory=EnhancedRiskConfig)
     web_url: str = field(default_factory=lambda: os.getenv("WEB_URL", ""))
     debug: bool = field(
         default_factory=lambda: os.getenv("DEBUG", "").lower() == "true"

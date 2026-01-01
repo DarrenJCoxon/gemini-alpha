@@ -217,3 +217,20 @@ model SystemConfig {
 
   @@map("system_config")
 }
+
+// =============================================================================
+// PORTFOLIO TRACKING (Story 5.5: Risk Parameter Optimization)
+// =============================================================================
+
+// Point-in-time portfolio value snapshot for drawdown tracking
+model PortfolioSnapshot {
+  id                  String   @id @default(cuid())
+  timestamp           DateTime @default(now())
+  portfolioValue      Decimal  @db.Decimal(18, 2)
+  peakValue           Decimal  @db.Decimal(18, 2)
+  drawdownPct         Decimal  @db.Decimal(5, 2)
+  openPositionsCount  Int?
+  realizedPnlToday    Decimal? @db.Decimal(18, 2)
+
+  @@index([timestamp])
+}

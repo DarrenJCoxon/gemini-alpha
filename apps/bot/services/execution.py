@@ -19,7 +19,7 @@ import logging
 import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
-from typing import List, Optional, Tuple, Any
+from typing import Dict, List, Optional, Tuple, Any
 
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -37,6 +37,7 @@ from .kraken_execution import (
     get_kraken_execution_client,
 )
 from .risk import calculate_stop_loss
+from .risk_validator import RiskValidator, TradeRiskCheck, get_risk_validator
 from .exceptions import (
     DuplicatePositionError,
     InsufficientFundsError,
@@ -373,6 +374,97 @@ async def execute_buy_with_risk(
         amount_usd=amount_usd,
         stop_loss_price=stop_loss_price,
         entry_atr=atr_value,
+        client=client,
+        session=session,
+    )
+
+
+async def execute_buy_with_risk_validation(
+    symbol: str,
+    amount_usd: float,
+    candles: List[dict],
+    portfolio_value: float,
+    current_positions: List[Dict],
+    daily_pnl: float = 0.0,
+    atr_multiplier: float = 2.0,
+    atr_period: int = 14,
+    client: Optional[KrakenExecutionClient] = None,
+    session: Optional[AsyncSession] = None,
+) -> Tuple[bool, Optional[str], Optional[Trade]]:
+    """
+    Execute buy with pre-trade risk validation.
+
+    Story 5.5: Risk Parameter Optimization
+
+    This function:
+    1. Validates the trade against all risk limits
+    2. Adjusts position size if necessary
+    3. Calculates ATR-based stop loss
+    4. Executes the order if approved
+
+    Args:
+        symbol: Trading pair in database format (e.g., "SOLUSD")
+        amount_usd: Requested amount in USD to spend
+        candles: Recent OHLCV candle data for ATR calculation
+        portfolio_value: Total portfolio value in USD
+        current_positions: List of current open positions with 'symbol' and 'value' keys
+        daily_pnl: Today's realized + unrealized P&L
+        atr_multiplier: Multiplier for ATR distance (default: 2.0)
+        atr_period: ATR calculation period (default: 14)
+        client: Optional Kraken client (uses global if not provided)
+        session: Optional database session
+
+    Returns:
+        Tuple of (success, error_message, trade_record)
+
+    Example:
+        >>> candles = await fetch_candles(symbol, limit=50)
+        >>> positions = [{"symbol": "BTCUSD", "value": 5000}, ...]
+        >>> success, error, trade = await execute_buy_with_risk_validation(
+        ...     symbol="SOLUSD",
+        ...     amount_usd=1000.0,
+        ...     candles=candles,
+        ...     portfolio_value=100000.0,
+        ...     current_positions=positions,
+        ... )
+    """
+    # Step 1: Validate against risk limits
+    risk_validator = get_risk_validator()
+    risk_check = await risk_validator.validate_trade(
+        symbol=symbol,
+        requested_size_usd=amount_usd,
+        portfolio_value=portfolio_value,
+        current_positions=current_positions,
+        daily_pnl=daily_pnl,
+        session=session,
+    )
+
+    if not risk_check.approved:
+        logger.warning(
+            f"Trade REJECTED for {symbol}: {'; '.join(risk_check.rejection_reasons)}"
+        )
+        return False, f"Risk check failed: {'; '.join(risk_check.rejection_reasons)}", None
+
+    # Step 2: Use adjusted size if necessary
+    adjusted_amount = float(risk_check.max_allowed_size)
+
+    if adjusted_amount < amount_usd:
+        logger.info(
+            f"Position size adjusted from ${amount_usd:.2f} to ${adjusted_amount:.2f} "
+            f"due to risk limits"
+        )
+
+    # Log any warnings
+    for warning in risk_check.warnings:
+        logger.warning(f"Risk warning for {symbol}: {warning}")
+
+    # Step 3: Execute with adjusted amount using ATR-based stop loss
+    return await execute_buy_with_risk(
+        symbol=symbol,
+        amount_usd=adjusted_amount,
+        candles=candles,
+        atr_multiplier=atr_multiplier,
+        atr_period=atr_period,
         client=client,
         session=session,
     )
