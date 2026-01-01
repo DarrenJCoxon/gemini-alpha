@@ -198,6 +198,7 @@ model Trade {
   pnlPercent       Decimal?    @db.Decimal(8, 4)
   exitReason       String?
   krakenOrderId    String?
+  entryAtr         Decimal?    @db.Decimal(18, 8)
   createdAt        DateTime    @default(now())
   updatedAt        DateTime    @updatedAt
 
