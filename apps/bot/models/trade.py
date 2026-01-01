@@ -92,6 +92,11 @@ class Trade(SQLModel, table=True):
         default=None,
         sa_column=Column("krakenOrderId", String, nullable=True),
     )
+    # ATR at time of entry (Story 3.2) - for position manager trailing stop
+    entry_atr: Optional[Decimal] = Field(
+        default=None,
+        sa_column=Column("entryAtr", Numeric(18, 8), nullable=True),
+    )
     created_at: datetime = Field(
         default_factory=datetime.utcnow,
         sa_column=Column("createdAt", DateTime, nullable=False),

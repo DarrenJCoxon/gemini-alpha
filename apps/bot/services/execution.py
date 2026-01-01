@@ -2,9 +2,11 @@
 Execution service for trade management.
 
 Story 3.1: Kraken Order Execution Service
+Story 3.2: Dynamic Risk Engine Integration
 
 This module provides high-level trade execution functions:
 - execute_buy(): Place market buy orders and create Trade records
+- execute_buy_with_risk(): Place market buy orders with ATR-based stop loss
 - execute_sell(): Place market sell orders and update Trade records
 - has_open_position(): Check for existing open positions
 - Duplicate position prevention (one position per asset)
@@ -15,7 +17,7 @@ import logging
 import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
-from typing import Optional, Tuple, Any
+from typing import List, Optional, Tuple, Any
 
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -32,6 +34,7 @@ from .kraken_execution import (
     KrakenExecutionClient,
     get_kraken_execution_client,
 )
+from .risk import calculate_stop_loss
 from .exceptions import (
     DuplicatePositionError,
     InsufficientFundsError,
@@ -136,6 +139,7 @@ async def execute_buy(
     symbol: str,
     amount_usd: float,
     stop_loss_price: Optional[float] = None,
+    entry_atr: Optional[float] = None,
     client: Optional[KrakenExecutionClient] = None,
     session: Optional[AsyncSession] = None,
 ) -> Tuple[bool, Optional[str], Optional[Trade]]:
@@ -149,6 +153,7 @@ async def execute_buy(
         symbol: Trading pair in database format (e.g., "SOLUSD")
         amount_usd: Amount in USD to spend
         stop_loss_price: Initial stop loss price (from ATR calculation)
+        entry_atr: ATR value at time of entry (from risk calculation, Story 3.2)
         client: Optional Kraken client (uses global if not provided)
         session: Optional database session
 
@@ -234,6 +239,7 @@ async def execute_buy(
             size=filled_quantity,
             entry_time=datetime.now(timezone.utc),
             stop_loss_price=Decimal(str(stop_loss_price)) if stop_loss_price else fill_price * Decimal("0.95"),
+            entry_atr=Decimal(str(entry_atr)) if entry_atr else None,
             kraken_order_id=order.get('id'),
         )
 
@@ -266,6 +272,93 @@ async def execute_buy(
     except Exception as e:
         logger.error(f"Unexpected error in execute_buy: {e}")
         return False, f"Unexpected error: {e}", None
+
+
+async def execute_buy_with_risk(
+    symbol: str,
+    amount_usd: float,
+    candles: List[dict],
+    atr_multiplier: float = 2.0,
+    atr_period: int = 14,
+    client: Optional[KrakenExecutionClient] = None,
+    session: Optional[AsyncSession] = None,
+) -> Tuple[bool, Optional[str], Optional[Trade]]:
+    """
+    Execute a market buy order with ATR-based dynamic stop loss calculation.
+
+    Story 3.2: Dynamic Risk Engine Integration
+
+    This function:
+    1. Calculates ATR from provided candle data
+    2. Computes stop loss as Entry - (ATR_Multiplier * ATR)
+    3. Executes the buy order via execute_buy()
+    4. Saves both stop_loss_price and entry_atr to the Trade record
+
+    Args:
+        symbol: Trading pair in database format (e.g., "SOLUSD")
+        amount_usd: Amount in USD to spend
+        candles: Recent OHLCV candle data for ATR calculation
+                 (at least period + 1 candles required)
+        atr_multiplier: Multiplier for ATR distance (default: 2.0)
+        atr_period: ATR calculation period (default: 14)
+        client: Optional Kraken client (uses global if not provided)
+        session: Optional database session
+
+    Returns:
+        Tuple of (success, error_message, trade_record)
+
+    Example:
+        >>> candles = await fetch_candles(symbol, limit=50)
+        >>> success, error, trade = await execute_buy_with_risk(
+        ...     symbol="SOLUSD",
+        ...     amount_usd=100.0,
+        ...     candles=candles,
+        ... )
+        >>> if success:
+        ...     print(f"Trade {trade.id}: Entry ${trade.entry_price}, Stop ${trade.stop_loss_price}")
+    """
+    execution_client = client or get_kraken_execution_client()
+
+    # Get estimated entry price for stop loss calculation
+    try:
+        kraken_symbol = execution_client.convert_symbol_to_kraken(symbol)
+        estimated_entry = await execution_client.get_current_price(kraken_symbol)
+    except ValueError as e:
+        return False, f"Invalid symbol format: {e}", None
+    except Exception as e:
+        logger.error(f"Error fetching price for stop loss calculation: {e}")
+        return False, f"Could not fetch current price: {e}", None
+
+    # Calculate stop loss using ATR
+    stop_loss_price, atr_value = calculate_stop_loss(
+        entry_price=float(estimated_entry),
+        candles=candles,
+        atr_multiplier=atr_multiplier,
+        atr_period=atr_period,
+    )
+
+    if stop_loss_price is None:
+        logger.error(
+            f"Failed to calculate stop loss for {symbol} - "
+            f"insufficient candle data (have {len(candles)}, need {atr_period + 1})"
+        )
+        return False, "Failed to calculate stop loss - insufficient data for ATR calculation", None
+
+    logger.info(
+        f"ATR-based stop loss calculated for {symbol}: "
+        f"Entry ~${estimated_entry:.4f}, Stop ${stop_loss_price:.4f}, "
+        f"ATR({atr_period})=${atr_value:.4f}, Multiplier={atr_multiplier}x"
+    )
+
+    # Execute buy with calculated stop loss
+    return await execute_buy(
+        symbol=symbol,
+        amount_usd=amount_usd,
+        stop_loss_price=stop_loss_price,
+        entry_atr=atr_value,
+        client=client,
+        session=session,
+    )
 
 
 @retry(

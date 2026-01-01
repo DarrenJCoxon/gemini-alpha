@@ -237,6 +237,64 @@ def get_gemini_flash_model():
 
 
 @dataclass
+class RiskConfig:
+    """
+    Risk management configuration for ATR-based stop loss (Story 3.2).
+
+    Controls dynamic stop loss calculation parameters:
+    - ATR period and multiplier for volatility-adjusted stops
+    - Min/max stop loss bounds for safety
+    - Default risk percentage for position sizing
+    """
+
+    # ATR calculation period (default: 14 - industry standard)
+    atr_period: int = field(
+        default_factory=lambda: int(os.getenv("RISK_ATR_PERIOD", "14"))
+    )
+    # ATR multiplier for stop loss distance (default: 2.0)
+    atr_multiplier: float = field(
+        default_factory=lambda: float(os.getenv("RISK_ATR_MULTIPLIER", "2.0"))
+    )
+    # Maximum stop loss as percentage of entry (default: 20%)
+    max_stop_loss_percentage: float = field(
+        default_factory=lambda: float(os.getenv("RISK_MAX_STOP_LOSS_PERCENTAGE", "0.20"))
+    )
+    # Minimum stop loss as percentage of entry (default: 2%)
+    min_stop_loss_percentage: float = field(
+        default_factory=lambda: float(os.getenv("RISK_MIN_STOP_LOSS_PERCENTAGE", "0.02"))
+    )
+    # Default risk percentage per trade for position sizing (default: 2%)
+    default_risk_per_trade: float = field(
+        default_factory=lambda: float(os.getenv("RISK_DEFAULT_PER_TRADE", "0.02"))
+    )
+
+    def validate(self) -> None:
+        """
+        Validate risk configuration values.
+
+        Raises:
+            ValueError: If configuration values are invalid
+        """
+        if self.atr_period < 1:
+            raise ValueError(f"ATR period must be >= 1, got {self.atr_period}")
+
+        if self.atr_multiplier <= 0:
+            raise ValueError(f"ATR multiplier must be > 0, got {self.atr_multiplier}")
+
+        if not (0 < self.min_stop_loss_percentage <= self.max_stop_loss_percentage <= 1.0):
+            raise ValueError(
+                f"Invalid stop loss bounds: min={self.min_stop_loss_percentage}, "
+                f"max={self.max_stop_loss_percentage}. Must be 0 < min <= max <= 1.0"
+            )
+
+        if not (0 < self.default_risk_per_trade <= 0.10):
+            raise ValueError(
+                f"Default risk per trade must be between 0% and 10%, "
+                f"got {self.default_risk_per_trade * 100}%"
+            )
+
+
+@dataclass
 class GeminiVisionConfig:
     """
     Google Gemini Pro Vision configuration for Chart Analysis (Story 2.3).
@@ -313,6 +371,7 @@ class Config:
     vertex_ai: VertexAIConfig = field(default_factory=VertexAIConfig)
     gemini: GeminiConfig = field(default_factory=GeminiConfig)
     gemini_vision: GeminiVisionConfig = field(default_factory=GeminiVisionConfig)
+    risk: RiskConfig = field(default_factory=RiskConfig)
     web_url: str = field(default_factory=lambda: os.getenv("WEB_URL", ""))
     debug: bool = field(
         default_factory=lambda: os.getenv("DEBUG", "").lower() == "true"

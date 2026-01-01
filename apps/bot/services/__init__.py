@@ -4,6 +4,7 @@ Services module - External API integrations.
 This module contains service classes for interacting with:
 - Kraken API (Story 1.3) - OHLCV data fetching
 - Kraken Execution (Story 3.1) - Order execution
+- Risk Engine (Story 3.2) - ATR-based stop loss calculation
 - LunarCrush API (Story 1.4) - Sentiment data
 - Bluesky/Telegram (Story 1.4) - Social media scraping
 - Other external services
@@ -22,6 +23,7 @@ from .kraken_execution import (
 )
 from .execution import (
     execute_buy,
+    execute_buy_with_risk,
     execute_sell,
     has_open_position,
     get_open_position,
@@ -64,6 +66,13 @@ from .scheduler import (
     get_active_assets,
     upsert_candle,
 )
+from .risk import (
+    calculate_atr,
+    calculate_stop_loss,
+    calculate_stop_loss_with_config,
+    calculate_position_size,
+    validate_stop_loss,
+)
 
 __all__ = [
     # Kraken client (Story 1.3)
@@ -75,8 +84,9 @@ __all__ = [
     "KrakenExecutionClient",
     "get_kraken_execution_client",
     "close_kraken_execution_client",
-    # Execution service (Story 3.1)
+    # Execution service (Story 3.1, 3.2)
     "execute_buy",
+    "execute_buy_with_risk",
     "execute_sell",
     "has_open_position",
     "get_open_position",
@@ -114,4 +124,10 @@ __all__ = [
     "ingest_sentiment_data",
     "get_active_assets",
     "upsert_candle",
+    # Risk Engine (Story 3.2)
+    "calculate_atr",
+    "calculate_stop_loss",
+    "calculate_stop_loss_with_config",
+    "calculate_position_size",
+    "validate_stop_loss",
 ]

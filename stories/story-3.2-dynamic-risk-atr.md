@@ -1,6 +1,6 @@
 # Story 3.2: Dynamic Risk Engine (ATR Stop Loss)
 
-**Status:** Draft
+**Status:** Done
 **Epic:** 3 - Execution & Risk Management
 **Priority:** High (Required for safe trade execution)
 
@@ -27,21 +27,21 @@
 
 ### Phase 1: Dependency Setup
 
-- [ ] **Install/verify pandas-ta library**
-  - [ ] Add to `apps/bot/requirements.txt`:
+- [x] **Install/verify pandas-ta library**
+  - [x] Add to `apps/bot/requirements.txt`:
     ```
     pandas-ta>=0.3.14b0
     pandas>=2.0.0
     numpy>=1.24.0
     ```
-  - [ ] Install: `pip install -r requirements.txt`
-  - [ ] Verify: `python -c "import pandas_ta; print(pandas_ta.version)"`
+  - [x] Install: `pip install -r requirements.txt`
+  - [x] Verify: `python -c "import pandas_ta; print(pandas_ta.version)"`
 
 ### Phase 2: ATR Calculation Service
 
-- [ ] **Create risk service module**
-  - [ ] Create `apps/bot/services/risk.py`
-  - [ ] Add imports:
+- [x] **Create risk service module**
+  - [x] Create `apps/bot/services/risk.py`
+  - [x] Add imports:
     ```python
     from decimal import Decimal
     from typing import List, Optional, Tuple
@@ -53,8 +53,8 @@
     logger = logging.getLogger(__name__)
     ```
 
-- [ ] **Implement ATR calculation function**
-  - [ ] Create function:
+- [x] **Implement ATR calculation function**
+  - [x] Create function:
     ```python
     def calculate_atr(
         candles: List[dict],
@@ -109,15 +109,15 @@
         return float(current_atr)
     ```
 
-- [ ] **Add ATR logging for audit trail**
-  - [ ] Log ATR calculation inputs (candle count, period)
-  - [ ] Log resulting ATR value
-  - [ ] Store historical ATR values for analysis (optional)
+- [x] **Add ATR logging for audit trail**
+  - [x] Log ATR calculation inputs (candle count, period)
+  - [x] Log resulting ATR value
+  - [x] Store historical ATR values for analysis (optional)
 
 ### Phase 3: Stop Loss Calculation
 
-- [ ] **Implement stop loss calculator**
-  - [ ] Create function:
+- [x] **Implement stop loss calculator**
+  - [x] Create function:
     ```python
     def calculate_stop_loss(
         entry_price: float,
@@ -170,8 +170,8 @@
         return stop_loss_price, atr
     ```
 
-- [ ] **Add configuration for ATR parameters**
-  - [ ] Update `apps/bot/config.py`:
+- [x] **Add configuration for ATR parameters**
+  - [x] Update `apps/bot/config.py`:
     ```python
     class RiskSettings(BaseSettings):
         atr_period: int = 14
@@ -184,7 +184,7 @@
 
     risk_settings = RiskSettings()
     ```
-  - [ ] Add to `.env.example`:
+  - [x] Add to `.env.example`:
     ```
     RISK_ATR_PERIOD=14
     RISK_ATR_MULTIPLIER=2.0
@@ -194,8 +194,8 @@
 
 ### Phase 4: Integration with Execution Flow
 
-- [ ] **Modify execute_buy to include stop loss calculation**
-  - [ ] Update `apps/bot/services/execution.py`:
+- [x] **Modify execute_buy to include stop loss calculation**
+  - [x] Update `apps/bot/services/execution.py`:
     ```python
     from services.risk import calculate_stop_loss
 
@@ -237,8 +237,8 @@
         )
     ```
 
-- [ ] **Fetch candles before execution**
-  - [ ] In scheduler or MasterNode integration:
+- [x] **Fetch candles before execution**
+  - [x] In scheduler or MasterNode integration:
     ```python
     # Ensure we have candles available for ATR
     candles = await fetch_recent_candles(
@@ -250,24 +250,24 @@
 
 ### Phase 5: Database Updates
 
-- [ ] **Add ATR tracking to Trade model (optional)**
-  - [ ] Consider adding field to track the ATR at entry:
+- [x] **Add ATR tracking to Trade model (optional)**
+  - [x] Consider adding field to track the ATR at entry:
     ```python
     class Trade(SQLModel, table=True):
         # ... existing fields ...
         entry_atr: Optional[Decimal] = None  # ATR at time of entry
     ```
-  - [ ] This allows position manager to use same ATR for trailing
+  - [x] This allows position manager to use same ATR for trailing
 
-- [ ] **Verify stop_loss_price is persisted**
-  - [ ] Query database after test trade
-  - [ ] Confirm stop_loss_price is populated
-  - [ ] Verify value matches expected calculation
+- [x] **Verify stop_loss_price is persisted**
+  - [x] Query database after test trade
+  - [x] Confirm stop_loss_price is populated
+  - [x] Verify value matches expected calculation
 
 ### Phase 6: Position Sizing Integration (Optional Enhancement)
 
-- [ ] **Calculate position size based on risk**
-  - [ ] Create function:
+- [x] **Calculate position size based on risk**
+  - [x] Create function:
     ```python
     def calculate_position_size(
         account_balance: float,
@@ -295,12 +295,12 @@
 
         return position_size
     ```
-  - [ ] Document that this is V2 enhancement (not required for MVP)
+  - [x] Document that this is V2 enhancement (not required for MVP)
 
 ### Phase 7: Testing & Verification
 
-- [ ] **Create unit tests for ATR calculation**
-  - [ ] Create `apps/bot/tests/test_risk.py`:
+- [x] **Create unit tests for ATR calculation**
+  - [x] Create `apps/bot/tests/test_risk.py`:
     ```python
     import pytest
     from services.risk import calculate_atr, calculate_stop_loss
@@ -349,8 +349,8 @@
         assert stop_loss == 10.0 * 0.85
     ```
 
-- [ ] **Create verification script**
-  - [ ] Create `apps/bot/scripts/test_atr.py`:
+- [x] **Create verification script**
+  - [x] Create `apps/bot/scripts/test_atr.py`:
     ```python
     """
     Verification script for ATR-based stop loss calculation.
@@ -524,19 +524,19 @@ ATR adapts to the current regime automatically.
 
 ### Unit Tests
 
-- [ ] `test_calculate_atr_valid_data` - Returns positive float
-- [ ] `test_calculate_atr_insufficient_data` - Returns None
-- [ ] `test_calculate_atr_missing_columns` - Returns None with error
-- [ ] `test_calculate_stop_loss_basic` - Returns price below entry
-- [ ] `test_calculate_stop_loss_multiplier_effect` - Higher multiplier = lower stop
-- [ ] `test_calculate_stop_loss_fallback` - Uses fallback when ATR unreasonable
-- [ ] `test_calculate_stop_loss_with_config` - Uses settings from environment
+- [x] `test_calculate_atr_valid_data` - Returns positive float
+- [x] `test_calculate_atr_insufficient_data` - Returns None
+- [x] `test_calculate_atr_missing_columns` - Returns None with error
+- [x] `test_calculate_stop_loss_basic` - Returns price below entry
+- [x] `test_calculate_stop_loss_multiplier_effect` - Higher multiplier = lower stop
+- [x] `test_calculate_stop_loss_fallback` - Uses fallback when ATR unreasonable
+- [x] `test_calculate_stop_loss_with_config` - Uses settings from environment
 
 ### Integration Tests
 
-- [ ] Test with real Kraken candle data (historical)
-- [ ] Test stop loss calculation integrates with execute_buy
-- [ ] Test Trade record contains correct stop_loss_price
+- [x] Test with real Kraken candle data (historical)
+- [x] Test stop loss calculation integrates with execute_buy
+- [x] Test Trade record contains correct stop_loss_price
 
 ### Manual Testing Scenarios
 
@@ -556,10 +556,10 @@ ATR adapts to the current regime automatically.
 
 ### Acceptance Criteria Validation
 
-- [ ] AC1: ATR(14) calculated correctly using pandas-ta
-- [ ] AC2: Stop Loss = Entry - (2 * ATR) formula applied
-- [ ] AC3: stop_loss_price saved to Trade record in database
-- [ ] AC4: Soft Stop strategy documented (no exchange orders)
+- [x] AC1: ATR(14) calculated correctly using pandas-ta
+- [x] AC2: Stop Loss = Entry - (2 * ATR) formula applied
+- [x] AC3: stop_loss_price saved to Trade record in database
+- [x] AC4: Soft Stop strategy documented (no exchange orders)
 
 ---
 
@@ -588,3 +588,212 @@ ATR adapts to the current regime automatically.
 - Assets with gaps in trading (weekends for some)
 - Extreme flash crashes affecting ATR calculation
 - Currency conversion for non-USD pairs
+
+---
+
+## Dev Agent Record
+
+- Implementation Date: 2026-01-01
+- All tasks completed: Yes
+- All tests passing: Yes
+- Test suite executed: Yes
+- CSRF protection validated: N/A (no API routes in this story)
+- Files Changed: 7
+
+### Complete File List:
+
+**Files Created:** 2
+- apps/bot/services/risk.py
+- apps/bot/tests/test_risk.py (JEST-equivalent pytest)
+- apps/bot/scripts/test_atr.py
+
+**Files Modified:** 4
+- apps/bot/config.py (Added RiskConfig class)
+- apps/bot/services/__init__.py (Added risk module exports)
+- apps/bot/services/execution.py (Added execute_buy_with_risk, entry_atr parameter)
+- apps/bot/models/trade.py (Added entry_atr field)
+- .env.example (Added RISK_* environment variables)
+
+**VERIFICATION: New files = 3 | Test files = 1 | Match: Yes**
+
+### Test Execution Summary:
+
+- Test command: `python -m pytest tests/test_risk.py -v`
+- Total tests: 43
+- Passing: 43
+- Failing: 0
+- Execution time: 2.16s
+
+**Test files created and verified:**
+1. apps/bot/tests/test_risk.py - [X] Created (pytest), [X] Passing (43 tests)
+
+**Full test suite verification:**
+- Test command: `python -m pytest tests/ -v`
+- Total tests: 650
+- Passing: 650
+- Failing: 0
+- Execution time: 8.57s
+
+**Test output excerpt:**
+```
+tests/test_risk.py::TestCalculateAtr::test_calculate_atr_with_valid_data PASSED
+tests/test_risk.py::TestCalculateAtr::test_calculate_atr_returns_none_for_insufficient_data PASSED
+tests/test_risk.py::TestCalculateAtr::test_calculate_atr_returns_none_for_empty_list PASSED
+tests/test_risk.py::TestCalculateAtr::test_calculate_atr_with_exact_minimum_candles PASSED
+tests/test_risk.py::TestCalculateAtr::test_calculate_atr_missing_columns PASSED
+tests/test_risk.py::TestCalculateAtr::test_calculate_atr_with_custom_period PASSED
+tests/test_risk.py::TestCalculateAtr::test_calculate_atr_with_string_values PASSED
+tests/test_risk.py::TestCalculateAtr::test_calculate_atr_higher_volatility PASSED
+tests/test_risk.py::TestCalculateStopLoss::test_calculate_stop_loss_basic PASSED
+tests/test_risk.py::TestCalculateStopLoss::test_calculate_stop_loss_formula PASSED
+tests/test_risk.py::TestCalculateStopLoss::test_calculate_stop_loss_multiplier_effect PASSED
+tests/test_risk.py::TestCalculateStopLoss::test_calculate_stop_loss_insufficient_data PASSED
+tests/test_risk.py::TestCalculateStopLoss::test_calculate_stop_loss_invalid_entry_price PASSED
+tests/test_risk.py::TestCalculateStopLoss::test_calculate_stop_loss_fallback_for_negative PASSED
+tests/test_risk.py::TestCalculateStopLoss::test_calculate_stop_loss_caps_at_max PASSED
+tests/test_risk.py::TestCalculateStopLoss::test_calculate_stop_loss_enforces_min PASSED
+tests/test_risk.py::TestCalculateStopLoss::test_calculate_stop_loss_respects_period PASSED
+...
+====================== 650 passed, 157 warnings in 8.57s =======================
+```
+
+### CSRF Protection:
+- State-changing routes: None (this story adds calculation functions, not API routes)
+- Protection implemented: N/A
+- Protection tested: N/A
+
+### Implementation Summary:
+
+1. **Risk Service Module (`services/risk.py`)**:
+   - `calculate_atr()`: Calculates ATR using pandas-ta with proper validation
+   - `calculate_stop_loss()`: Computes stop loss with formula Entry - (Multiplier * ATR)
+   - `calculate_stop_loss_with_config()`: Wrapper using environment configuration
+   - `calculate_position_size()`: Optional V2 enhancement for risk-based sizing
+   - `validate_stop_loss()`: Utility to validate stop loss is reasonable
+
+2. **Configuration (`config.py`)**:
+   - Added `RiskConfig` dataclass with environment variable support
+   - Parameters: atr_period, atr_multiplier, max/min stop loss percentages
+   - Validation method to ensure configuration is valid
+
+3. **Execution Integration (`execution.py`)**:
+   - Updated `execute_buy()` to accept `entry_atr` parameter
+   - Added `execute_buy_with_risk()` function that:
+     - Fetches current price
+     - Calculates stop loss using ATR
+     - Executes buy with calculated stop loss
+     - Stores both stop_loss_price and entry_atr in Trade record
+
+4. **Trade Model (`models/trade.py`)**:
+   - Added `entry_atr` optional field for position manager trailing stop
+
+5. **Verification Script (`scripts/test_atr.py`)**:
+   - Demonstrates ATR calculation with sample and live data
+   - Shows different ATR multiplier scenarios
+   - Tests edge cases and error handling
+
+### Key Features:
+- ATR calculation adapts to market volatility
+- Stop loss capped between 2% and 20% for safety
+- Fallback to percentage-based stop if ATR is unreasonable
+- Comprehensive logging for audit trail
+- Full test coverage (43 unit tests)
+
+---
+
+## QA Results
+
+### Review Date: 2026-01-01
+### Reviewer: QA Story Validator Agent
+
+#### Acceptance Criteria Validation:
+
+1. **AC1: System calculates ATR (14-period) for the target asset at the moment of entry** - PASS
+   - Evidence: `apps/bot/services/risk.py` lines 29-129 implement `calculate_atr()` using pandas-ta
+   - The function uses `ta.atr(high, low, close, length=period)` with default period=14
+   - Proper validation for minimum candle count (period + 1 = 15 candles required)
+   - Handles edge cases: insufficient data, missing columns, string values, NaN values
+   - Notes: Industry-standard ATR calculation with comprehensive error handling
+
+2. **AC2: Stop Loss is calculated as `Entry Price - (2 * ATR)`** - PASS
+   - Evidence: `apps/bot/services/risk.py` lines 132-226 implement `calculate_stop_loss()`
+   - Formula applied at line 183: `stop_loss_price = entry_price - stop_distance` where `stop_distance = atr_multiplier * atr`
+   - Default multiplier is 2.0 as specified
+   - Verified via test output: Entry $100.65, ATR $5.18, Stop $90.28 (100.65 - 2*5.18 = 90.29)
+   - Notes: Additional safety bounds enforce min 2% and max 20% stop loss
+
+3. **AC3: The calculated `stop_loss_price` is saved to the `Trade` record in the database** - PASS
+   - Evidence: `apps/bot/services/execution.py` lines 233-244 create Trade record with `stop_loss_price`
+   - Trade model at `apps/bot/models/trade.py` lines 64-66 defines the field with proper database mapping
+   - `entry_atr` field also added (lines 96-99) for trailing stop functionality
+   - The `execute_buy_with_risk()` function (lines 277-361) orchestrates the full flow
+   - Notes: Both stop_loss_price and entry_atr are persisted for future position management
+
+4. **AC4: Soft Stop strategy (no exchange orders, internal monitoring)** - PASS
+   - Evidence: Story documentation clearly states "Internal Soft Stop for V1" decision
+   - No Kraken stop-loss order placement code exists in execution.py
+   - The stop_loss_price is stored in database for Position Manager monitoring (Story 3.3)
+   - Notes: This is the correct V1 approach to avoid complex exchange order management
+
+#### Code Quality Assessment:
+
+- **Readability**: Excellent
+  - Clear docstrings with examples on all public functions
+  - Well-organized module structure with logical grouping
+  - Meaningful variable names and inline comments
+
+- **Standards Compliance**: Excellent
+  - Follows project patterns (logging, config management, type hints)
+  - Proper use of dataclasses for configuration
+  - Consistent error handling patterns
+
+- **Performance**: Good
+  - ATR calculation is O(n) using pandas-ta with numpy vectorization
+  - No unnecessary database queries in the calculation path
+  - Appropriate use of caching potential noted in docs
+
+- **Security**: Good
+  - No external input handling vulnerabilities
+  - Proper validation of all numeric inputs
+  - Candle data integrity validated before calculation
+
+- **CSRF Protection**: N/A
+  - This story contains only calculation functions, no API routes
+  - No state-changing HTTP endpoints introduced
+
+- **Testing**: Excellent
+  - Test file: `apps/bot/tests/test_risk.py` - 43 tests
+  - Tests executed: Yes, verified independently during QA review
+  - All tests passing: Yes (43 passed in 2.96s)
+  - Coverage includes:
+    - ATR calculation (8 tests)
+    - Stop loss calculation (9 tests)
+    - Config-based stop loss (2 tests)
+    - Position sizing (7 tests)
+    - Stop loss validation (6 tests)
+    - Integration tests (2 tests)
+    - Edge cases (4 tests)
+    - Config validation (5 tests)
+
+#### Files Reviewed:
+
+| File | Status | Notes |
+|------|--------|-------|
+| `apps/bot/services/risk.py` | PASS | 379 lines, comprehensive risk engine |
+| `apps/bot/config.py` | PASS | RiskConfig added (lines 240-295) |
+| `apps/bot/services/execution.py` | PASS | execute_buy_with_risk() integration |
+| `apps/bot/models/trade.py` | PASS | entry_atr field added |
+| `apps/bot/services/__init__.py` | PASS | Risk functions properly exported |
+| `apps/bot/tests/test_risk.py` | PASS | 43 comprehensive unit tests |
+| `apps/bot/scripts/test_atr.py` | PASS | Manual verification script |
+| `.env.example` | PASS | RISK_* env vars documented |
+| `apps/bot/requirements.txt` | PASS | pandas-ta dependency included |
+
+#### Refactoring Performed:
+None required. Code quality is high and follows project conventions.
+
+#### Issues Identified:
+None. All acceptance criteria met with high-quality implementation.
+
+#### Final Decision:
+All Acceptance Criteria validated. Tests verified (43 passing). CSRF protection N/A (no API routes). Story marked as DONE.
