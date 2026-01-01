@@ -23,8 +23,9 @@ import httpx
 # Configure logging
 logger = logging.getLogger("sentiment_ingestor")
 
-# API Configuration
-CRYPTOPANIC_API_URL = "https://cryptopanic.com/api/v1/posts/"
+# API Configuration - Developer v2 API
+# Docs: https://cryptopanic.com/developers/api/
+CRYPTOPANIC_API_URL = "https://cryptopanic.com/api/developer/v2/posts/"
 
 
 @dataclass
@@ -198,24 +199,27 @@ class CryptoPanicClient(BaseCryptoPanicClient):
                     except (ValueError, AttributeError):
                         pub_date = datetime.now(timezone.utc)
 
-                    # Extract currencies mentioned
+                    # Extract currencies mentioned (v2 API uses "instruments")
                     currencies = []
-                    for currency in item.get("currencies", []):
-                        if isinstance(currency, dict):
-                            currencies.append(currency.get("code", ""))
+                    for instrument in item.get("instruments", []):
+                        if isinstance(instrument, dict):
+                            currencies.append(instrument.get("code", ""))
                         else:
-                            currencies.append(str(currency))
+                            currencies.append(str(instrument))
 
-                    # Get votes
+                    # Get votes (v2 API structure)
                     votes = item.get("votes", {})
 
                     # Determine sentiment from votes
-                    positive = votes.get("positive", 0)
+                    # v2 API uses: liked, disliked, negative, important, lol, toxic, saved, comments
+                    liked = votes.get("liked", 0)
                     negative = votes.get("negative", 0)
+                    disliked = votes.get("disliked", 0)
+                    total_negative = negative + disliked
                     sentiment = None
-                    if positive > negative + 2:
+                    if liked > total_negative + 2:
                         sentiment = "bullish"
-                    elif negative > positive + 2:
+                    elif total_negative > liked + 2:
                         sentiment = "bearish"
 
                     news_items.append(
@@ -297,20 +301,24 @@ class CryptoPanicClient(BaseCryptoPanicClient):
                     except (ValueError, AttributeError):
                         pub_date = datetime.now(timezone.utc)
 
+                    # Extract currencies (v2 API uses "instruments")
                     currencies = []
-                    for currency in item.get("currencies", []):
-                        if isinstance(currency, dict):
-                            currencies.append(currency.get("code", ""))
+                    for instrument in item.get("instruments", []):
+                        if isinstance(instrument, dict):
+                            currencies.append(instrument.get("code", ""))
                         else:
-                            currencies.append(str(currency))
+                            currencies.append(str(instrument))
 
+                    # Get votes (v2 API structure)
                     votes = item.get("votes", {})
-                    positive = votes.get("positive", 0)
+                    liked = votes.get("liked", 0)
                     negative = votes.get("negative", 0)
+                    disliked = votes.get("disliked", 0)
+                    total_negative = negative + disliked
                     sentiment = None
-                    if positive > negative + 2:
+                    if liked > total_negative + 2:
                         sentiment = "bullish"
-                    elif negative > positive + 2:
+                    elif total_negative > liked + 2:
                         sentiment = "bearish"
 
                     news_items.append(
