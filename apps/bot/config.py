@@ -237,59 +237,57 @@ def get_gemini_flash_model():
 
 
 @dataclass
-class MultiFactorConfig:
+class OnChainConfig:
     """
-    Multi-factor confirmation configuration (Story 5.3).
+    On-chain data provider configuration (Story 5.6).
 
-    Controls the thresholds and minimum factor counts for the
-    multi-factor confirmation system that requires multiple
-    confirming signals before entering trades.
-
-    Factor Weights:
-        - Primary factors (1.5x): Extreme Fear/Greed
-        - Standard factors (1.0x): RSI, Price Position, Volume, Technicals
-        - Supplementary factors (0.75x): Vision, Volume Exhaustion
+    Integrates on-chain metrics like exchange flows, whale activity,
+    stablecoin reserves, and funding rates for deeper market insight.
     """
 
-    # Minimum factors required for BUY/SELL signal
-    min_factors_buy: int = field(
-        default_factory=lambda: int(os.getenv("MIN_FACTORS_BUY", "3"))
-    )
-    min_factors_sell: int = field(
-        default_factory=lambda: int(os.getenv("MIN_FACTORS_SELL", "2"))
+    # CryptoQuant API (primary provider - best free tier)
+    cryptoquant_api_key: Optional[str] = field(
+        default_factory=lambda: os.getenv("CRYPTOQUANT_API_KEY")
     )
 
-    # Fear & Greed thresholds
-    extreme_fear_threshold: int = field(
-        default_factory=lambda: int(os.getenv("EXTREME_FEAR_THRESHOLD", "25"))
-    )
-    extreme_greed_threshold: int = field(
-        default_factory=lambda: int(os.getenv("EXTREME_GREED_THRESHOLD", "75"))
+    # Santiment API (backup provider)
+    santiment_api_key: Optional[str] = field(
+        default_factory=lambda: os.getenv("SANTIMENT_API_KEY")
     )
 
-    # RSI thresholds
-    rsi_oversold_threshold: float = field(
-        default_factory=lambda: float(os.getenv("RSI_OVERSOLD_THRESHOLD", "30"))
-    )
-    rsi_overbought_threshold: float = field(
-        default_factory=lambda: float(os.getenv("RSI_OVERBOUGHT_THRESHOLD", "70"))
+    # Glassnode API (premium provider)
+    glassnode_api_key: Optional[str] = field(
+        default_factory=lambda: os.getenv("GLASSNODE_API_KEY")
     )
 
-    # Support/Resistance proximity (percentage)
-    support_proximity_pct: float = field(
-        default_factory=lambda: float(os.getenv("SUPPORT_PROXIMITY_PCT", "3.0"))
-    )
-    resistance_proximity_pct: float = field(
-        default_factory=lambda: float(os.getenv("RESISTANCE_PROXIMITY_PCT", "3.0"))
+    # Cache settings
+    cache_ttl_minutes: int = field(
+        default_factory=lambda: int(os.getenv("ONCHAIN_CACHE_TTL_MINUTES", "15"))
     )
 
-    # Volume thresholds (multiplier of average)
-    volume_capitulation_mult: float = field(
-        default_factory=lambda: float(os.getenv("VOLUME_CAPITULATION_MULT", "2.0"))
+    # Data fetch settings
+    lookback_days: int = field(
+        default_factory=lambda: int(os.getenv("ONCHAIN_LOOKBACK_DAYS", "7"))
     )
-    volume_exhaustion_mult: float = field(
-        default_factory=lambda: float(os.getenv("VOLUME_EXHAUSTION_MULT", "0.5"))
+
+    # Thresholds for signals
+    exchange_flow_spike_mult: float = field(
+        default_factory=lambda: float(os.getenv("EXCHANGE_FLOW_SPIKE_MULT", "2.0"))
     )
+    whale_activity_threshold: int = field(
+        default_factory=lambda: int(os.getenv("WHALE_ACTIVITY_THRESHOLD", "100"))
+    )  # Number of large transactions
+    funding_rate_extreme_threshold: float = field(
+        default_factory=lambda: float(os.getenv("FUNDING_RATE_EXTREME_THRESHOLD", "0.1"))
+    )  # 0.1% per 8 hours is extreme
+
+    def is_configured(self) -> bool:
+        """Check if any on-chain provider is configured."""
+        return any([
+            self.cryptoquant_api_key,
+            self.santiment_api_key,
+            self.glassnode_api_key
+        ])
 
 
 @dataclass
@@ -628,7 +626,7 @@ class Config:
     gemini: GeminiConfig = field(default_factory=GeminiConfig)
     gemini_vision: GeminiVisionConfig = field(default_factory=GeminiVisionConfig)
     risk: RiskConfig = field(default_factory=RiskConfig)
-    enhanced_risk: EnhancedRiskConfig = field(default_factory=EnhancedRiskConfig)
+    onchain: OnChainConfig = field(default_factory=OnChainConfig)
     web_url: str = field(default_factory=lambda: os.getenv("WEB_URL", ""))
     debug: bool = field(
         default_factory=lambda: os.getenv("DEBUG", "").lower() == "true"

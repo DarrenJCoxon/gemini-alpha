@@ -1,441 +1,344 @@
 """
-Individual Factor Checking Functions for Multi-Factor Confirmation System.
+Factor checker functions for multi-factor confirmation system (Story 5.3 & 5.6).
 
-Story 5.3: Multi-Factor Confirmation System
+This module provides the actual checking logic for each factor:
+- On-chain factors (Story 5.6)
+- Technical factors
+- Sentiment factors
 
-This module provides individual factor checking functions that evaluate
-specific market conditions against configurable thresholds. Each function
-returns a FactorResult indicating whether the condition was met.
-
-Factor Categories:
-    BUY Factors:
-        - check_extreme_fear: Fear & Greed < threshold
-        - check_rsi_oversold: RSI < threshold
-        - check_price_at_support: Price within X% of SMA200
-        - check_volume_capitulation: Volume > 2x average
-        - check_bullish_technicals: Technical signal is BULLISH
-        - check_vision_validated: Vision agent confirms setup
-
-    SELL Factors:
-        - check_extreme_greed: Fear & Greed > threshold
-        - check_rsi_overbought: RSI > threshold
-        - check_price_at_resistance: Price extended above SMA200
-        - check_volume_exhaustion: Volume < 50% average
-        - check_bearish_technicals: Technical signal is BEARISH
+Each checker returns a FactorResult indicating whether the factor
+was triggered and the values used for the decision.
 """
 
-from typing import Any, Dict
+from typing import Optional
+import logging
 
-from config import get_config
-from services.signal_factors import BuyFactor, FactorResult, SellFactor
+from services.signal_factors import (
+    BuyFactor,
+    SellFactor,
+    FactorResult,
+    get_factor_weight,
+)
+from services.onchain_analyzer import (
+    get_onchain_analysis,
+    OnChainSignal,
+)
+
+logger = logging.getLogger(__name__)
 
 
-def check_extreme_fear(sentiment_analysis: Dict[str, Any]) -> FactorResult:
+# =============================================================================
+# On-Chain Factor Checkers (Story 5.6)
+# =============================================================================
+
+
+async def check_onchain_accumulation(symbol: str) -> FactorResult:
     """
-    Check if Fear & Greed indicates extreme fear.
+    Check if on-chain data shows accumulation.
 
-    Extreme fear is a contrarian BUY signal - when the market is
-    fearful, it may be oversold and due for a reversal.
+    Triggered when:
+    - Exchange flows show accumulation (outflows > inflows)
+    - Whale activity shows buying
+    - On-chain signal is ACCUMULATION or STRONG_ACCUMULATION
 
     Args:
-        sentiment_analysis: Output from Sentiment Agent containing fear_score
+        symbol: Trading symbol to analyze
 
     Returns:
-        FactorResult with triggered=True if fear_score < threshold
+        FactorResult with trigger status and reasoning
     """
-    config = get_config()
-    mf_config = config.multi_factor
-    fear_score = sentiment_analysis.get("fear_score", 50)
-    threshold = mf_config.extreme_fear_threshold
+    try:
+        analysis = await get_onchain_analysis(symbol)
 
-    triggered = fear_score < threshold
+        triggered = analysis.signal in [
+            OnChainSignal.ACCUMULATION,
+            OnChainSignal.STRONG_ACCUMULATION
+        ]
 
-    return FactorResult(
-        factor=BuyFactor.EXTREME_FEAR.value,
-        triggered=triggered,
-        value=float(fear_score),
-        threshold=float(threshold),
-        weight=1.5,  # Higher weight for primary factor
-        reasoning=f"Fear score {fear_score} {'<' if triggered else '>='} {threshold}"
-    )
+        # Give extra weight to strong accumulation
+        weight = 1.5 if analysis.signal == OnChainSignal.STRONG_ACCUMULATION else 1.0
+        weight *= get_factor_weight(BuyFactor.ONCHAIN_ACCUMULATION.value)
 
+        # Truncate reasoning for cleaner display
+        reasoning_short = analysis.reasoning[:100]
+        if len(analysis.reasoning) > 100:
+            reasoning_short += "..."
 
-def check_extreme_greed(sentiment_analysis: Dict[str, Any]) -> FactorResult:
-    """
-    Check if Fear & Greed indicates extreme greed.
-
-    Extreme greed is a contrarian SELL signal - when the market is
-    greedy, it may be overbought and due for a correction.
-
-    Args:
-        sentiment_analysis: Output from Sentiment Agent containing fear_score
-
-    Returns:
-        FactorResult with triggered=True if fear_score > threshold
-    """
-    config = get_config()
-    mf_config = config.multi_factor
-    fear_score = sentiment_analysis.get("fear_score", 50)
-    threshold = mf_config.extreme_greed_threshold
-
-    triggered = fear_score > threshold
-
-    return FactorResult(
-        factor=SellFactor.EXTREME_GREED.value,
-        triggered=triggered,
-        value=float(fear_score),
-        threshold=float(threshold),
-        weight=1.5,
-        reasoning=f"Fear score {fear_score} {'>' if triggered else '<='} {threshold}"
-    )
-
-
-def check_rsi_oversold(technical_analysis: Dict[str, Any]) -> FactorResult:
-    """
-    Check if RSI indicates oversold condition.
-
-    Oversold RSI (below threshold) suggests the asset may be
-    due for a bounce and is a BUY factor.
-
-    Args:
-        technical_analysis: Output from Technical Agent containing rsi
-
-    Returns:
-        FactorResult with triggered=True if RSI < threshold
-    """
-    config = get_config()
-    mf_config = config.multi_factor
-    rsi = technical_analysis.get("rsi", 50)
-    threshold = mf_config.rsi_oversold_threshold
-
-    triggered = rsi < threshold
-
-    return FactorResult(
-        factor=BuyFactor.RSI_OVERSOLD.value,
-        triggered=triggered,
-        value=float(rsi),
-        threshold=float(threshold),
-        weight=1.0,
-        reasoning=f"RSI {rsi:.1f} {'<' if triggered else '>='} {threshold}"
-    )
-
-
-def check_rsi_overbought(technical_analysis: Dict[str, Any]) -> FactorResult:
-    """
-    Check if RSI indicates overbought condition.
-
-    Overbought RSI (above threshold) suggests the asset may be
-    due for a correction and is a SELL factor.
-
-    Args:
-        technical_analysis: Output from Technical Agent containing rsi
-
-    Returns:
-        FactorResult with triggered=True if RSI > threshold
-    """
-    config = get_config()
-    mf_config = config.multi_factor
-    rsi = technical_analysis.get("rsi", 50)
-    threshold = mf_config.rsi_overbought_threshold
-
-    triggered = rsi > threshold
-
-    return FactorResult(
-        factor=SellFactor.RSI_OVERBOUGHT.value,
-        triggered=triggered,
-        value=float(rsi),
-        threshold=float(threshold),
-        weight=1.0,
-        reasoning=f"RSI {rsi:.1f} {'>' if triggered else '<='} {threshold}"
-    )
-
-
-def check_price_at_support(
-    technical_analysis: Dict[str, Any],
-    current_price: float
-) -> FactorResult:
-    """
-    Check if price is near key support level.
-
-    Support levels considered:
-    - Within X% of SMA200 (long-term support in uptrend)
-    - Price slightly above the moving average is ideal
-
-    Args:
-        technical_analysis: Output from Technical Agent containing sma_200
-        current_price: Current asset price
-
-    Returns:
-        FactorResult with triggered=True if price is within support zone
-    """
-    config = get_config()
-    mf_config = config.multi_factor
-    sma_200 = technical_analysis.get("sma_200", 0)
-    proximity_pct = mf_config.support_proximity_pct
-
-    if sma_200 <= 0 or current_price <= 0:
         return FactorResult(
-            factor=BuyFactor.PRICE_AT_SUPPORT.value,
-            triggered=False,
-            value=0,
-            threshold=proximity_pct,
-            weight=1.0,
-            reasoning="SMA200 or price not available"
+            factor=BuyFactor.ONCHAIN_ACCUMULATION.value,
+            triggered=triggered,
+            value=analysis.confidence,
+            threshold=50,
+            weight=weight,
+            reasoning=f"On-chain: {analysis.signal.value} ({reasoning_short})"
         )
 
-    # Check proximity to SMA200 (support in uptrend)
-    distance_to_sma = ((current_price - sma_200) / sma_200) * 100
-
-    # Price is at support if within proximity_pct above SMA200
-    # (slightly above the moving average)
-    triggered = 0 <= distance_to_sma <= proximity_pct
-
-    return FactorResult(
-        factor=BuyFactor.PRICE_AT_SUPPORT.value,
-        triggered=triggered,
-        value=distance_to_sma,
-        threshold=proximity_pct,
-        weight=1.0,
-        reasoning=f"Price {distance_to_sma:+.1f}% from SMA200 (support zone: 0-{proximity_pct}%)"
-    )
-
-
-def check_price_at_resistance(
-    technical_analysis: Dict[str, Any],
-    current_price: float
-) -> FactorResult:
-    """
-    Check if price is near key resistance level.
-
-    For resistance, we look at how extended price is above
-    the long-term average. Extended prices may be due for pullback.
-
-    Args:
-        technical_analysis: Output from Technical Agent containing sma_200
-        current_price: Current asset price
-
-    Returns:
-        FactorResult with triggered=True if price is extended above SMA200
-    """
-    config = get_config()
-    mf_config = config.multi_factor
-    sma_200 = technical_analysis.get("sma_200", 0)
-    proximity_pct = mf_config.resistance_proximity_pct
-
-    if sma_200 <= 0 or current_price <= 0:
+    except Exception as e:
+        logger.error(f"Error checking on-chain accumulation for {symbol}: {e}")
         return FactorResult(
-            factor=SellFactor.PRICE_AT_RESISTANCE.value,
+            factor=BuyFactor.ONCHAIN_ACCUMULATION.value,
             triggered=False,
             value=0,
-            threshold=proximity_pct,
+            threshold=50,
             weight=1.0,
-            reasoning="SMA200 or price not available"
+            reasoning=f"Error: {str(e)}"
         )
 
-    # For resistance, look at how extended price is above average
-    distance_to_sma = ((current_price - sma_200) / sma_200) * 100
 
-    # Extended if more than 2x the proximity threshold above
-    extended_threshold = proximity_pct * 2
-    triggered = distance_to_sma > extended_threshold
-
-    return FactorResult(
-        factor=SellFactor.PRICE_AT_RESISTANCE.value,
-        triggered=triggered,
-        value=distance_to_sma,
-        threshold=extended_threshold,
-        weight=1.0,
-        reasoning=f"Price {distance_to_sma:+.1f}% from SMA200 (extended: >{extended_threshold}%)"
-    )
-
-
-def check_volume_capitulation(technical_analysis: Dict[str, Any]) -> FactorResult:
+async def check_funding_short_squeeze(symbol: str) -> FactorResult:
     """
-    Check for volume capitulation spike.
+    Check if funding rates indicate short squeeze potential.
 
-    Capitulation: Volume > 2x the 20-period average indicates
-    panic selling and potential bottom formation.
+    Triggered when:
+    - Funding rate is extremely negative (< -0.1%)
+    - Market is heavily short
+    - Short squeeze risk is elevated
 
     Args:
-        technical_analysis: Output from Technical Agent containing volume_delta
+        symbol: Trading symbol to analyze
 
     Returns:
-        FactorResult with triggered=True if volume is significantly above average
+        FactorResult with trigger status and reasoning
     """
-    config = get_config()
-    mf_config = config.multi_factor
-    volume_delta = technical_analysis.get("volume_delta", 0)  # Percentage above average
-    threshold = (mf_config.volume_capitulation_mult - 1) * 100  # Convert to percentage
+    try:
+        analysis = await get_onchain_analysis(symbol)
 
-    # volume_delta is already percentage above average
-    triggered = volume_delta >= threshold
+        triggered = analysis.funding_signal == "short_squeeze_risk"
+        weight = get_factor_weight(BuyFactor.FUNDING_SHORT_SQUEEZE.value)
 
-    return FactorResult(
-        factor=BuyFactor.VOLUME_CAPITULATION.value,
-        triggered=triggered,
-        value=float(volume_delta),
-        threshold=threshold,
-        weight=1.0,
-        reasoning=f"Volume {volume_delta:+.0f}% vs avg (capitulation: >={threshold:.0f}%)"
-    )
+        # Convert funding rate to percentage for display
+        rate_pct = float(analysis.avg_funding_rate) * 100
+
+        return FactorResult(
+            factor=BuyFactor.FUNDING_SHORT_SQUEEZE.value,
+            triggered=triggered,
+            value=rate_pct,
+            threshold=-0.05,  # -0.05% funding rate
+            weight=weight,
+            reasoning=f"Funding rate: {rate_pct:.3f}% (squeeze risk: {triggered})"
+        )
+
+    except Exception as e:
+        logger.error(f"Error checking funding short squeeze for {symbol}: {e}")
+        return FactorResult(
+            factor=BuyFactor.FUNDING_SHORT_SQUEEZE.value,
+            triggered=False,
+            value=0,
+            threshold=-0.05,
+            weight=0.75,
+            reasoning=f"Error: {str(e)}"
+        )
 
 
-def check_volume_exhaustion(technical_analysis: Dict[str, Any]) -> FactorResult:
+async def check_stablecoin_dry_powder() -> FactorResult:
     """
-    Check for volume exhaustion (declining volume at highs).
+    Check if stablecoin reserves indicate high buying power.
 
-    Volume exhaustion at price highs suggests weakening momentum
-    and potential reversal.
+    Triggered when:
+    - Stablecoin reserves on exchanges are rising
+    - 7-day change > 10%
+    - Indicates "dry powder" ready to buy
+
+    Returns:
+        FactorResult with trigger status and reasoning
+    """
+    try:
+        # Get any symbol's analysis (stablecoin data is market-wide)
+        analysis = await get_onchain_analysis("BTCUSD")
+
+        triggered = analysis.stablecoin_signal == "dry_powder_high"
+        weight = get_factor_weight(BuyFactor.STABLECOIN_DRY_POWDER.value)
+
+        return FactorResult(
+            factor=BuyFactor.STABLECOIN_DRY_POWDER.value,
+            triggered=triggered,
+            value=analysis.reserves_change_7d_pct,
+            threshold=10.0,  # 10% increase threshold
+            weight=weight,
+            reasoning=f"Stablecoin reserves 7d change: {analysis.reserves_change_7d_pct:.1f}%"
+        )
+
+    except Exception as e:
+        logger.error(f"Error checking stablecoin dry powder: {e}")
+        return FactorResult(
+            factor=BuyFactor.STABLECOIN_DRY_POWDER.value,
+            triggered=False,
+            value=0,
+            threshold=10.0,
+            weight=0.5,
+            reasoning=f"Error: {str(e)}"
+        )
+
+
+async def check_onchain_distribution(symbol: str) -> FactorResult:
+    """
+    Check if on-chain data shows distribution.
+
+    Triggered when:
+    - Exchange flows show distribution (inflows > outflows)
+    - Whale activity shows selling
+    - On-chain signal is DISTRIBUTION or STRONG_DISTRIBUTION
 
     Args:
-        technical_analysis: Output from Technical Agent containing volume_delta
+        symbol: Trading symbol to analyze
 
     Returns:
-        FactorResult with triggered=True if volume is significantly below average
+        FactorResult with trigger status and reasoning
     """
-    config = get_config()
-    mf_config = config.multi_factor
-    volume_delta = technical_analysis.get("volume_delta", 0)
-    threshold = (mf_config.volume_exhaustion_mult - 1) * 100  # Negative percentage
+    try:
+        analysis = await get_onchain_analysis(symbol)
 
-    # Volume exhaustion if significantly below average
-    triggered = volume_delta <= threshold
+        triggered = analysis.signal in [
+            OnChainSignal.DISTRIBUTION,
+            OnChainSignal.STRONG_DISTRIBUTION
+        ]
 
-    return FactorResult(
-        factor=SellFactor.VOLUME_EXHAUSTION.value,
-        triggered=triggered,
-        value=float(volume_delta),
-        threshold=threshold,
-        weight=0.75,  # Lower weight - supplementary factor
-        reasoning=f"Volume {volume_delta:+.0f}% vs avg (exhaustion: <={threshold:.0f}%)"
-    )
+        # Give extra weight to strong distribution
+        weight = 1.5 if analysis.signal == OnChainSignal.STRONG_DISTRIBUTION else 1.0
+        weight *= get_factor_weight(SellFactor.ONCHAIN_DISTRIBUTION.value)
+
+        # Truncate reasoning for cleaner display
+        reasoning_short = analysis.reasoning[:100]
+        if len(analysis.reasoning) > 100:
+            reasoning_short += "..."
+
+        return FactorResult(
+            factor=SellFactor.ONCHAIN_DISTRIBUTION.value,
+            triggered=triggered,
+            value=analysis.confidence,
+            threshold=50,
+            weight=weight,
+            reasoning=f"On-chain: {analysis.signal.value} ({reasoning_short})"
+        )
+
+    except Exception as e:
+        logger.error(f"Error checking on-chain distribution for {symbol}: {e}")
+        return FactorResult(
+            factor=SellFactor.ONCHAIN_DISTRIBUTION.value,
+            triggered=False,
+            value=0,
+            threshold=50,
+            weight=1.0,
+            reasoning=f"Error: {str(e)}"
+        )
 
 
-def check_bullish_technicals(technical_analysis: Dict[str, Any]) -> FactorResult:
+async def check_funding_long_squeeze(symbol: str) -> FactorResult:
     """
-    Check if technical signal is bullish with sufficient strength.
+    Check if funding rates indicate long squeeze potential.
 
-    A bullish technical signal with high strength confirms
-    the overall buy setup.
+    Triggered when:
+    - Funding rate is extremely positive (> 0.1%)
+    - Market is heavily long
+    - Long squeeze risk is elevated
 
     Args:
-        technical_analysis: Output from Technical Agent
+        symbol: Trading symbol to analyze
 
     Returns:
-        FactorResult with triggered=True if signal is BULLISH with strength >= 50
+        FactorResult with trigger status and reasoning
     """
-    signal = technical_analysis.get("signal", "NEUTRAL")
-    strength = technical_analysis.get("strength", 0)
+    try:
+        analysis = await get_onchain_analysis(symbol)
 
-    triggered = signal == "BULLISH" and strength >= 50
+        triggered = analysis.funding_signal == "long_squeeze_risk"
+        weight = get_factor_weight(SellFactor.FUNDING_LONG_SQUEEZE.value)
 
-    return FactorResult(
-        factor=BuyFactor.BULLISH_TECHNICALS.value,
-        triggered=triggered,
-        value=float(strength),
-        threshold=50.0,
-        weight=1.0,
-        reasoning=f"Technical signal: {signal} (strength: {strength})"
-    )
+        # Convert funding rate to percentage for display
+        rate_pct = float(analysis.avg_funding_rate) * 100
+
+        return FactorResult(
+            factor=SellFactor.FUNDING_LONG_SQUEEZE.value,
+            triggered=triggered,
+            value=rate_pct,
+            threshold=0.05,  # 0.05% funding rate
+            weight=weight,
+            reasoning=f"Funding rate: {rate_pct:.3f}% (squeeze risk: {triggered})"
+        )
+
+    except Exception as e:
+        logger.error(f"Error checking funding long squeeze for {symbol}: {e}")
+        return FactorResult(
+            factor=SellFactor.FUNDING_LONG_SQUEEZE.value,
+            triggered=False,
+            value=0,
+            threshold=0.05,
+            weight=0.75,
+            reasoning=f"Error: {str(e)}"
+        )
 
 
-def check_bearish_technicals(technical_analysis: Dict[str, Any]) -> FactorResult:
+# =============================================================================
+# Aggregate On-Chain Checks
+# =============================================================================
+
+
+async def get_onchain_buy_factors(symbol: str) -> list[FactorResult]:
     """
-    Check if technical signal is bearish with sufficient strength.
-
-    A bearish technical signal with high strength confirms
-    the overall sell setup.
+    Get all on-chain buy factors for a symbol.
 
     Args:
-        technical_analysis: Output from Technical Agent
+        symbol: Trading symbol to analyze
 
     Returns:
-        FactorResult with triggered=True if signal is BEARISH with strength >= 50
+        List of FactorResults for on-chain buy factors
     """
-    signal = technical_analysis.get("signal", "NEUTRAL")
-    strength = technical_analysis.get("strength", 0)
+    factors = []
 
-    triggered = signal == "BEARISH" and strength >= 50
+    # Check all on-chain buy factors
+    factors.append(await check_onchain_accumulation(symbol))
+    factors.append(await check_funding_short_squeeze(symbol))
+    factors.append(await check_stablecoin_dry_powder())
 
-    return FactorResult(
-        factor=SellFactor.BEARISH_TECHNICALS.value,
-        triggered=triggered,
-        value=float(strength),
-        threshold=50.0,
-        weight=1.0,
-        reasoning=f"Technical signal: {signal} (strength: {strength})"
-    )
+    return factors
 
 
-def check_vision_validated(vision_analysis: Dict[str, Any]) -> FactorResult:
+async def get_onchain_sell_factors(symbol: str) -> list[FactorResult]:
     """
-    Check if vision agent validated the setup.
-
-    Vision validation provides additional confirmation that
-    the chart pattern supports the trade.
+    Get all on-chain sell factors for a symbol.
 
     Args:
-        vision_analysis: Output from Vision Agent
+        symbol: Trading symbol to analyze
 
     Returns:
-        FactorResult with triggered=True if vision is valid with confidence >= 50
+        List of FactorResults for on-chain sell factors
     """
-    is_valid = vision_analysis.get("is_valid", False)
-    confidence = vision_analysis.get("confidence_score", 0)
+    factors = []
 
-    triggered = is_valid and confidence >= 50
+    # Check all on-chain sell factors
+    factors.append(await check_onchain_distribution(symbol))
+    factors.append(await check_funding_long_squeeze(symbol))
 
-    return FactorResult(
-        factor=BuyFactor.VISION_VALIDATED.value,
-        triggered=triggered,
-        value=float(confidence),
-        threshold=50.0,
-        weight=0.75,  # Supplementary confirmation
-        reasoning=f"Vision valid: {is_valid} (confidence: {confidence})"
-    )
+    return factors
 
 
-def check_vision_bearish(vision_analysis: Dict[str, Any]) -> FactorResult:
+async def get_all_onchain_factors(symbol: str) -> tuple[list[FactorResult], list[FactorResult]]:
     """
-    Check if vision agent detected bearish patterns.
-
-    Vision detecting bearish patterns (like head and shoulders,
-    double top) with high confidence supports a sell decision.
+    Get all on-chain factors (buy and sell) for a symbol.
 
     Args:
-        vision_analysis: Output from Vision Agent
+        symbol: Trading symbol to analyze
 
     Returns:
-        FactorResult with triggered=True if bearish patterns detected
+        Tuple of (buy_factors, sell_factors)
     """
-    patterns = vision_analysis.get("patterns_detected", [])
-    confidence = vision_analysis.get("confidence_score", 0)
+    buy_factors = await get_onchain_buy_factors(symbol)
+    sell_factors = await get_onchain_sell_factors(symbol)
 
-    # Bearish patterns to look for
-    bearish_patterns = [
-        "head_and_shoulders",
-        "head and shoulders",
-        "double_top",
-        "double top",
-        "rising_wedge",
-        "rising wedge",
-        "bearish_divergence",
-        "bearish divergence"
-    ]
+    return buy_factors, sell_factors
 
-    # Check if any bearish pattern is detected
-    has_bearish_pattern = any(
-        pattern.lower() in [p.lower() for p in patterns]
-        for pattern in bearish_patterns
-    )
 
-    triggered = has_bearish_pattern and confidence >= 50
-
-    return FactorResult(
-        factor=SellFactor.VISION_BEARISH.value,
-        triggered=triggered,
-        value=float(confidence),
-        threshold=50.0,
-        weight=0.75,  # Supplementary confirmation
-        reasoning=f"Bearish patterns: {patterns} (confidence: {confidence})"
-    )
+# Export all
+__all__ = [
+    # On-chain buy factors
+    "check_onchain_accumulation",
+    "check_funding_short_squeeze",
+    "check_stablecoin_dry_powder",
+    # On-chain sell factors
+    "check_onchain_distribution",
+    "check_funding_long_squeeze",
+    # Aggregate functions
+    "get_onchain_buy_factors",
+    "get_onchain_sell_factors",
+    "get_all_onchain_factors",
+]
