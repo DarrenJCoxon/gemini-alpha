@@ -25,7 +25,9 @@ from core.graph import get_council_graph
 from core.state import create_initial_state
 from database import init_db, get_session_maker
 from services.kraken import close_kraken_client, get_kraken_client
-from services.scheduler import get_scheduler, ingest_kraken_data, run_council_cycle
+from services.socials.telegram import close_telegram_fetcher
+from services.cryptopanic import close_cryptopanic_client
+from services.scheduler import get_scheduler, ingest_kraken_data, ingest_sentiment_data, run_council_cycle, backfill_kraken_data
 from services.data_loader import (
     load_candles_for_asset,
     load_sentiment_for_asset,
@@ -76,6 +78,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     logger.info("Shutting down...")
     scheduler.shutdown(wait=False)
     await close_kraken_client()
+    await close_telegram_fetcher()
+    await close_cryptopanic_client()
     logger.info("Contrarian AI Bot stopped")
 
 
@@ -152,6 +156,63 @@ async def trigger_kraken_ingestion() -> dict[str, Any]:
         raise HTTPException(
             status_code=500,
             detail=f"Ingestion failed: {str(e)}",
+        )
+
+
+@app.post("/api/ingest/kraken/backfill")
+async def trigger_kraken_backfill(limit: int = 200) -> dict[str, Any]:
+    """
+    Backfill historical OHLCV data from Kraken.
+
+    Fetches multiple candles per asset to build up historical data.
+    This is useful for initial setup or after database reset.
+
+    Args:
+        limit: Number of candles to fetch per asset (default: 200)
+               - 200 = ~50 hours of 15-minute candles (enough for Council)
+               - 720 = ~1 week of 15-minute candles
+
+    Returns:
+        Dict with backfill statistics including success/failure counts.
+    """
+    logger.info(f"Manual Kraken BACKFILL triggered via API (limit={limit})")
+    try:
+        stats = await backfill_kraken_data(limit=limit)
+        return {
+            "status": "completed",
+            "stats": stats,
+        }
+    except Exception as e:
+        logger.error(f"Manual backfill failed: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Backfill failed: {str(e)}",
+        )
+
+
+@app.post("/api/ingest/sentiment")
+async def trigger_sentiment_ingestion() -> dict[str, Any]:
+    """
+    Manually trigger sentiment data ingestion.
+
+    Fetches Fear & Greed Index and social sentiment data.
+    This endpoint bypasses the scheduler and runs ingestion immediately.
+
+    Returns:
+        Dict with ingestion statistics.
+    """
+    logger.info("Manual sentiment ingestion triggered via API")
+    try:
+        stats = await ingest_sentiment_data()
+        return {
+            "status": "completed",
+            "stats": stats,
+        }
+    except Exception as e:
+        logger.error(f"Manual sentiment ingestion failed: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Sentiment ingestion failed: {str(e)}",
         )
 
 

@@ -75,9 +75,11 @@ async def upsert_candle(
         True if upsert was successful
     """
     from sqlalchemy.dialects.postgresql import insert
+    from models.base import generate_cuid
 
     try:
         stmt = insert(Candle).values(
+            id=generate_cuid(),  # Must provide ID for Prisma schema
             asset_id=asset_id,
             timestamp=candle_data["timestamp"],
             timeframe=candle_data["timeframe"],
@@ -130,7 +132,8 @@ async def update_asset_price(
 
         if asset:
             asset.last_price = last_price
-            asset.last_updated = datetime.now(timezone.utc)
+            # Use naive datetime for Prisma compatibility (data is always UTC)
+            asset.last_updated = datetime.now(timezone.utc).replace(tzinfo=None)
             session.add(asset)
 
     except Exception as e:
@@ -141,6 +144,7 @@ async def ingest_single_asset(
     kraken_client: KrakenClient,
     session: AsyncSession,
     asset: Asset,
+    limit: int = 1,
 ) -> tuple[bool, int]:
     """
     Fetch and upsert candle data for a single asset.
@@ -149,6 +153,7 @@ async def ingest_single_asset(
         kraken_client: Kraken API client
         session: Database session
         asset: Asset to fetch data for
+        limit: Number of candles to fetch (default: 1 for regular ingestion)
 
     Returns:
         Tuple of (success: bool, candle_count: int)
@@ -158,7 +163,7 @@ async def ingest_single_asset(
         candles = await kraken_client.fetch_ohlcv_for_asset(
             asset.symbol,
             timeframe="15m",
-            limit=1,
+            limit=limit,
         )
 
         if not candles:
@@ -283,6 +288,100 @@ async def ingest_kraken_data() -> dict[str, Any]:
     # Log critical alert if all failed
     if stats["total_assets"] > 0 and stats["successful"] == 0:
         logger.critical("ALERT: Complete ingestion cycle failure - no assets processed successfully")
+
+    return stats
+
+
+async def backfill_kraken_data(limit: int = 200) -> dict[str, Any]:
+    """
+    Backfill historical OHLCV data from Kraken.
+
+    Fetches multiple candles per asset to build up historical data.
+    Use limit=200 for ~50 hours of 15-minute candles (enough for Council).
+    Use limit=720 for ~1 week of 15-minute candles.
+
+    Args:
+        limit: Number of candles to fetch per asset (default: 200)
+
+    Returns:
+        Dict with backfill statistics
+    """
+    start_time = datetime.now(timezone.utc)
+    logger.info(f"Starting Kraken BACKFILL at {start_time.isoformat()} (limit={limit})")
+
+    config = get_config()
+    kraken_client = get_kraken_client()
+
+    # Initialize client
+    await kraken_client.initialize()
+
+    stats = {
+        "start_time": start_time.isoformat(),
+        "limit_per_asset": limit,
+        "total_assets": 0,
+        "successful": 0,
+        "failed": 0,
+        "candles_upserted": 0,
+        "errors": [],
+    }
+
+    try:
+        # Get async session
+        session_maker = get_session_maker()
+        async with session_maker() as session:
+            # Fetch active assets
+            assets = await get_active_assets(session)
+            stats["total_assets"] = len(assets)
+
+            if not assets:
+                logger.warning("No active assets found in database")
+                return stats
+
+            logger.info(f"Backfilling {len(assets)} active assets with {limit} candles each")
+
+            # Process assets one at a time with longer delays for backfill
+            for i, asset in enumerate(assets):
+                logger.info(f"Backfilling {asset.symbol} ({i+1}/{len(assets)})...")
+
+                success, count = await ingest_single_asset(
+                    kraken_client,
+                    session,
+                    asset,
+                    limit=limit,
+                )
+
+                if success:
+                    stats["successful"] += 1
+                    stats["candles_upserted"] += count
+                    logger.info(f"  -> {asset.symbol}: {count} candles upserted")
+                else:
+                    stats["failed"] += 1
+                    logger.warning(f"  -> {asset.symbol}: FAILED")
+
+                # Longer rate limiting delay for backfill to avoid rate limits
+                await asyncio.sleep(max(config.kraken.rate_limit_ms / 500, 2.0))
+
+                # Commit after each asset for backfill
+                await session.commit()
+
+    except Exception as e:
+        error_msg = f"Backfill error: {str(e)}"
+        logger.error(error_msg)
+        stats["errors"].append(error_msg)
+
+    # Calculate duration
+    end_time = datetime.now(timezone.utc)
+    duration = (end_time - start_time).total_seconds()
+    stats["end_time"] = end_time.isoformat()
+    stats["duration_seconds"] = duration
+
+    # Log summary
+    logger.info(
+        f"Kraken BACKFILL complete. "
+        f"Success: {stats['successful']}/{stats['total_assets']}, "
+        f"Candles: {stats['candles_upserted']}, "
+        f"Duration: {duration:.2f}s"
+    )
 
     return stats
 
@@ -692,17 +791,28 @@ async def ingest_sentiment_data() -> dict[str, Any]:
             remaining_quota = sentiment_service.lunarcrush.get_remaining_quota()
             sentiment_logger.info(f"LunarCrush quota remaining: {remaining_quota}")
 
+            # Fetch Fear & Greed Index ONCE (market-wide, not per-asset)
+            fear_greed_data = await sentiment_service.fetch_fear_greed_data()
+            if fear_greed_data:
+                sentiment_logger.info(
+                    f"Fear & Greed Index: {fear_greed_data.value} "
+                    f"({fear_greed_data.classification})"
+                )
+            else:
+                sentiment_logger.warning("Fear & Greed data unavailable")
+
             # Process all assets for social data, but only current group for LunarCrush
             for asset in assets:
                 try:
                     # Determine if this asset should fetch LunarCrush data
                     fetch_lunarcrush = asset in current_group
 
-                    # Fetch sentiment from all sources
+                    # Fetch sentiment from all sources (with Fear & Greed fallback)
                     sentiment = await sentiment_service.fetch_all_sentiment(
                         asset.symbol,
                         fetch_lunarcrush=fetch_lunarcrush,
                         fetch_socials=True,
+                        fear_greed_data=fear_greed_data,
                     )
 
                     if fetch_lunarcrush and sentiment.lunarcrush is not None:

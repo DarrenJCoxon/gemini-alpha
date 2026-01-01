@@ -2,7 +2,7 @@
 Sentiment aggregation service.
 
 This module provides functionality to:
-- Aggregate sentiment data from multiple sources (LunarCrush, Bluesky, Telegram)
+- Aggregate sentiment data from multiple sources (LunarCrush, Bluesky, Telegram, Reddit)
 - Calculate aggregated sentiment scores
 - Store sentiment data in the SentimentLog table
 - Implement rotation strategy for API rate limiting
@@ -36,6 +36,16 @@ from .socials.telegram import (
     TelegramMessage,
     get_or_create_telegram_fetcher,
 )
+from .cryptopanic import (
+    BaseCryptoPanicClient,
+    CryptoPanicNews,
+    get_or_create_cryptopanic_client,
+)
+from .fear_greed import (
+    FearGreedData,
+    fetch_fear_greed_index,
+    fear_greed_to_contrarian_score,
+)
 
 # Configure logging
 logger = logging.getLogger("sentiment_ingestor")
@@ -47,8 +57,10 @@ class AggregatedSentiment:
 
     symbol: str
     lunarcrush: Optional[LunarCrushMetrics] = None
+    fear_greed: Optional[FearGreedData] = None
     bluesky_posts: list[BlueskyPost] = field(default_factory=list)
     telegram_messages: list[TelegramMessage] = field(default_factory=list)
+    cryptopanic_news: list[CryptoPanicNews] = field(default_factory=list)
     aggregated_score: int = 50
     galaxy_score: Optional[int] = None
     alt_rank: Optional[int] = None
@@ -60,8 +72,10 @@ class AggregatedSentiment:
         return {
             "symbol": self.symbol,
             "lunarcrush": self.lunarcrush.to_dict() if self.lunarcrush else None,
+            "fear_greed": self.fear_greed.to_dict() if self.fear_greed else None,
             "bluesky_posts": [p.to_dict() for p in self.bluesky_posts],
             "telegram_messages": [m.to_dict() for m in self.telegram_messages],
+            "cryptopanic_news": [n.to_dict() for n in self.cryptopanic_news],
             "aggregated_score": self.aggregated_score,
             "galaxy_score": self.galaxy_score,
             "alt_rank": self.alt_rank,
@@ -72,45 +86,49 @@ class AggregatedSentiment:
 def calculate_aggregated_score(
     galaxy_score: Optional[int],
     social_volume: int,
+    fear_greed_value: Optional[int] = None,
     avg_social_volume: int = 10000,
 ) -> int:
     """
     Calculate aggregated sentiment score.
 
-    Formula:
-    - 60% weight on Galaxy Score (direct sentiment)
-    - 40% weight on normalized Social Volume (activity level)
-
-    Social volume is normalized against average (default: 10,000).
+    Priority:
+    1. If Galaxy Score available: 60% Galaxy + 40% Social Volume
+    2. If only Fear & Greed available: Use F&G directly (market-wide sentiment)
+    3. If neither: Return neutral (50)
 
     Args:
         galaxy_score: LunarCrush Galaxy Score (0-100)
         social_volume: Current social volume
+        fear_greed_value: Alternative.me Fear & Greed Index (0-100)
         avg_social_volume: Average social volume for normalization
 
     Returns:
         Aggregated score (0-100)
     """
-    # Default to neutral if no Galaxy Score
-    if galaxy_score is None:
-        galaxy_score = 50
+    # If we have Galaxy Score, use the weighted formula
+    if galaxy_score is not None:
+        # Normalize social volume to 0-100 scale
+        if avg_social_volume <= 0:
+            avg_social_volume = 10000
+        volume_normalized = min(100, (social_volume / avg_social_volume) * 50)
 
-    # Normalize social volume to 0-100 scale
-    if avg_social_volume <= 0:
-        avg_social_volume = 10000
+        # Weighted aggregation
+        aggregated = (galaxy_score * 0.6) + (volume_normalized * 0.4)
+        return int(min(100, max(0, aggregated)))
 
-    volume_normalized = min(100, (social_volume / avg_social_volume) * 50)
+    # If we have Fear & Greed but no Galaxy Score, use F&G directly
+    if fear_greed_value is not None:
+        return fear_greed_value
 
-    # Weighted aggregation
-    aggregated = (galaxy_score * 0.6) + (volume_normalized * 0.4)
-
-    # Clamp to 0-100 range
-    return int(min(100, max(0, aggregated)))
+    # No data available - return neutral
+    return 50
 
 
 def concatenate_social_text(
     bluesky_posts: list[BlueskyPost],
     telegram_messages: list[TelegramMessage],
+    cryptopanic_news: list[CryptoPanicNews] = None,
     max_length: int = 10000,
 ) -> str:
     """
@@ -119,12 +137,14 @@ def concatenate_social_text(
     Args:
         bluesky_posts: List of Bluesky posts
         telegram_messages: List of Telegram messages
+        cryptopanic_news: List of CryptoPanic news items
         max_length: Maximum length of concatenated text
 
     Returns:
         Concatenated text from all sources
     """
     texts = []
+    cryptopanic_news = cryptopanic_news or []
 
     # Add Bluesky posts
     for post in bluesky_posts:
@@ -133,6 +153,11 @@ def concatenate_social_text(
     # Add Telegram messages
     for msg in telegram_messages:
         texts.append(f"[Telegram {msg.channel}] {msg.text}")
+
+    # Add CryptoPanic news
+    for news in cryptopanic_news:
+        sentiment_tag = f" [{news.sentiment}]" if news.sentiment else ""
+        texts.append(f"[CryptoPanic {news.source}{sentiment_tag}] {news.title}")
 
     result = "\n---\n".join(texts)
 
@@ -147,7 +172,7 @@ class SentimentService:
     """
     Service for aggregating sentiment from multiple sources.
 
-    Coordinates fetching from LunarCrush, Bluesky, and Telegram,
+    Coordinates fetching from LunarCrush, Bluesky, Telegram, and CryptoPanic,
     calculates aggregated scores, and stores in database.
     """
 
@@ -156,6 +181,7 @@ class SentimentService:
         lunarcrush: Optional[BaseLunarCrushClient] = None,
         bluesky: Optional[BaseBlueskyFetcher] = None,
         telegram: Optional[BaseTelegramFetcher] = None,
+        cryptopanic: Optional[BaseCryptoPanicClient] = None,
     ) -> None:
         """
         Initialize sentiment service.
@@ -164,10 +190,12 @@ class SentimentService:
             lunarcrush: LunarCrush client (uses global if None)
             bluesky: Bluesky fetcher (uses global if None)
             telegram: Telegram fetcher (uses global if None)
+            cryptopanic: CryptoPanic client (uses global if None)
         """
         self._lunarcrush = lunarcrush
         self._bluesky = bluesky
         self._telegram = telegram
+        self._cryptopanic = cryptopanic
 
     @property
     def lunarcrush(self) -> BaseLunarCrushClient:
@@ -189,6 +217,13 @@ class SentimentService:
         if self._telegram is None:
             self._telegram = get_or_create_telegram_fetcher()
         return self._telegram
+
+    @property
+    def cryptopanic(self) -> BaseCryptoPanicClient:
+        """Get CryptoPanic client."""
+        if self._cryptopanic is None:
+            self._cryptopanic = get_or_create_cryptopanic_client()
+        return self._cryptopanic
 
     async def fetch_lunarcrush_data(
         self,
@@ -271,11 +306,57 @@ class SentimentService:
             logger.error(f"Error fetching Telegram data for {symbol}: {e}")
             return []
 
+    async def fetch_cryptopanic_data(
+        self,
+        symbol: str,
+        limit: int = 10,
+    ) -> list[CryptoPanicNews]:
+        """
+        Fetch CryptoPanic news for a symbol.
+
+        Args:
+            symbol: Database symbol
+            limit: Max news items to fetch
+
+        Returns:
+            List of CryptoPanicNews objects
+        """
+        try:
+            news = await self.cryptopanic.fetch_news(symbol, limit=limit)
+            logger.debug(f"Fetched {len(news)} CryptoPanic news for {symbol}")
+            return news
+
+        except Exception as e:
+            logger.error(f"Error fetching CryptoPanic data for {symbol}: {e}")
+            return []
+
+    async def fetch_fear_greed_data(self) -> Optional[FearGreedData]:
+        """
+        Fetch the global Fear & Greed Index.
+
+        This is a market-wide indicator (not per-symbol), so we only
+        need to fetch it once per ingestion cycle.
+
+        Returns:
+            FearGreedData or None if fetch failed
+        """
+        try:
+            fg_data = await fetch_fear_greed_index()
+            if fg_data:
+                logger.info(
+                    f"Fear & Greed Index: {fg_data.value} ({fg_data.classification})"
+                )
+            return fg_data
+        except Exception as e:
+            logger.error(f"Error fetching Fear & Greed data: {e}")
+            return None
+
     async def fetch_all_sentiment(
         self,
         symbol: str,
         fetch_lunarcrush: bool = True,
         fetch_socials: bool = True,
+        fear_greed_data: Optional[FearGreedData] = None,
     ) -> AggregatedSentiment:
         """
         Fetch sentiment from all sources for a symbol.
@@ -284,26 +365,39 @@ class SentimentService:
             symbol: Database symbol (e.g., "SOLUSD")
             fetch_lunarcrush: Whether to fetch LunarCrush data
             fetch_socials: Whether to fetch social media data
+            fear_greed_data: Pre-fetched Fear & Greed data (shared across assets)
 
         Returns:
             AggregatedSentiment with data from all sources
         """
         result = AggregatedSentiment(symbol=symbol)
 
+        # Store Fear & Greed data if provided
+        if fear_greed_data:
+            result.fear_greed = fear_greed_data
+
         # Fetch data from all sources in parallel
         tasks = []
+
+        async def return_none():
+            return None
+
+        async def return_empty_list():
+            return []
 
         if fetch_lunarcrush:
             tasks.append(self.fetch_lunarcrush_data(symbol))
         else:
-            tasks.append(asyncio.coroutine(lambda: None)())
+            tasks.append(return_none())
 
         if fetch_socials:
             tasks.append(self.fetch_bluesky_data(symbol))
             tasks.append(self.fetch_telegram_data(symbol))
+            tasks.append(self.fetch_cryptopanic_data(symbol))
         else:
-            tasks.append(asyncio.coroutine(lambda: [])())
-            tasks.append(asyncio.coroutine(lambda: [])())
+            tasks.append(return_empty_list())
+            tasks.append(return_empty_list())
+            tasks.append(return_empty_list())
 
         # Execute concurrently
         results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -323,24 +417,35 @@ class SentimentService:
         if not isinstance(results[2], Exception) and results[2]:
             result.telegram_messages = results[2]
 
+        # Process CryptoPanic result
+        if not isinstance(results[3], Exception) and results[3]:
+            result.cryptopanic_news = results[3]
+
         # Concatenate social text
         result.raw_text = concatenate_social_text(
             result.bluesky_posts,
             result.telegram_messages,
+            result.cryptopanic_news,
         )
 
-        # Calculate aggregated score
+        # Calculate aggregated score (with Fear & Greed fallback)
+        fg_value = fear_greed_data.value if fear_greed_data else None
         result.aggregated_score = calculate_aggregated_score(
             result.galaxy_score,
             result.social_volume or 0,
+            fear_greed_value=fg_value,
         )
 
+        # Log with Fear & Greed info
+        fg_info = f"F&G={fg_value}" if fg_value else "F&G=N/A"
         logger.info(
             f"Sentiment for {symbol}: "
             f"Score={result.aggregated_score}, "
             f"GS={result.galaxy_score}, "
+            f"{fg_info}, "
             f"Posts={len(result.bluesky_posts)}, "
-            f"Msgs={len(result.telegram_messages)}"
+            f"Msgs={len(result.telegram_messages)}, "
+            f"News={len(result.cryptopanic_news)}"
         )
 
         return result
@@ -364,7 +469,8 @@ async def save_sentiment_log(
     Returns:
         Created SentimentLog record
     """
-    now = datetime.now(timezone.utc)
+    # Use naive datetime for Prisma compatibility (data is always UTC)
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
 
     log = SentimentLog(
         asset_id=asset_id,
@@ -408,7 +514,8 @@ async def upsert_sentiment_log(
     Returns:
         True if upsert was successful
     """
-    now = datetime.now(timezone.utc)
+    # Use naive datetime for Prisma compatibility (data is always UTC)
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
 
     try:
         # Note: We use sa_column names (camelCase) for the values dict
@@ -537,4 +644,6 @@ async def close_sentiment_service() -> None:
             await _sentiment_service._bluesky.close()
         if _sentiment_service._telegram:
             await _sentiment_service._telegram.close()
+        if _sentiment_service._cryptopanic:
+            await _sentiment_service._cryptopanic.close()
         _sentiment_service = None

@@ -31,9 +31,13 @@ mplfinance>=0.12.10b0
 matplotlib>=3.8.0
 Pillow>=10.0.0
 
+# Telegram scraping (Story 1.4 - Sentiment)
+Telethon>=1.36.0
+
 # Development dependencies
 pytest>=7.0.0
 pytest-asyncio>=0.21.0
 pytest-cov>=4.1.0
 ruff>=0.1.0
 mypy>=1.0.0
+rich>=13.0.0

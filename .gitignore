@@ -53,3 +53,11 @@ yarn-error.log*
 
 # Docker
 postgres_data/
+
+# Telegram session files (contain auth tokens)
+*.session
+*.session-journal
+
+# Documentation (internal)
+docs/
+stories/

@@ -155,9 +155,9 @@ class VertexAIConfig:
     credentials_path: Optional[str] = field(
         default_factory=lambda: os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
     )
-    # Model selection for agents
+    # Model selection for agents (fallback to GEMINI_MODEL)
     model_name: str = field(
-        default_factory=lambda: os.getenv("VERTEX_AI_MODEL", "gemini-1.5-pro")
+        default_factory=lambda: os.getenv("VERTEX_AI_MODEL", os.getenv("GEMINI_MODEL", "gemini-2.0-flash-lite"))
     )
     # Temperature for agent responses (lower = more deterministic)
     temperature: float = field(
@@ -306,9 +306,9 @@ class GeminiVisionConfig:
     api_key: Optional[str] = field(
         default_factory=lambda: os.getenv("GOOGLE_AI_API_KEY")
     )
-    # Gemini Pro model for vision analysis (better for complex visual tasks)
+    # Gemini model for vision analysis (uses GEMINI_MODEL by default)
     model_name: str = field(
-        default_factory=lambda: os.getenv("GEMINI_VISION_MODEL", "gemini-1.5-pro")
+        default_factory=lambda: os.getenv("GEMINI_VISION_MODEL", os.getenv("GEMINI_MODEL", "gemini-2.0-flash-lite"))
     )
     # Very low temperature for consistent chart analysis
     temperature: float = field(

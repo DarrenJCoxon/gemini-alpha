@@ -66,10 +66,12 @@ async def log_council_session(
         "strength": technical.get("strength"),
     }
 
-    # Get decision timestamp or use current time
+    # Get decision timestamp or use current time (naive UTC for Prisma)
     decision_timestamp = decision.get("timestamp")
     if decision_timestamp is None:
-        decision_timestamp = datetime.now(timezone.utc)
+        decision_timestamp = datetime.now(timezone.utc).replace(tzinfo=None)
+    elif hasattr(decision_timestamp, 'tzinfo') and decision_timestamp.tzinfo is not None:
+        decision_timestamp = decision_timestamp.replace(tzinfo=None)
 
     # Map action string to Decision enum
     action_str = decision.get("action", "HOLD").upper()

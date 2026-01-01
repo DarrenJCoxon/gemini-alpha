@@ -1,230 +1,357 @@
-# Contrarian AI Trading Platform
+# ContrarianAI Trading Bot
 
-AI-powered cryptocurrency trading platform with contrarian sentiment analysis.
+An AI-powered cryptocurrency trading bot that uses **contrarian sentiment analysis** - buying when others are fearful and selling when others are greedy.
 
-## Project Structure
+Built with a **Council of AI Agents** architecture using LangGraph, where multiple specialized AI agents analyze different aspects of the market and a Master Node synthesizes their insights into trading decisions.
 
 ```
-contrarian-ai/
-├── apps/
-│   ├── web/                    # Next.js 15 Dashboard (Vercel)
-│   │   ├── src/app/            # App Router
-│   │   ├── src/components/     # Shadcn UI Components
-│   │   └── src/lib/            # Utility functions
-│   └── bot/                    # Python Trading Engine (Railway)
-│       ├── core/               # LangGraph Definitions
-│       ├── services/           # External API Services
-│       ├── models/             # SQLModel Definitions
-│       ├── database.py         # Database connection
-│       └── main.py             # FastAPI Entry Point
-├── packages/
-│   ├── database/               # Shared Prisma Schema
-│   │   ├── prisma/schema.prisma
-│   │   └── index.ts            # Generated Client exports
-│   └── types/                  # Shared TypeScript Interfaces
-├── turbo.json                  # Turborepo Config
-├── package.json                # Root (pnpm workspaces)
-├── docker-compose.yml          # Local DB for dev
-└── .github/workflows/ci.yml    # GitHub Actions CI
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         Council of AI Agents                                │
+├──────────────────┬──────────────────┬──────────────────┬───────────────────┤
+│  Sentiment Agent │  Technical Agent │   Vision Agent   │    Master Node    │
+│                  │                  │                  │                   │
+│  "People are     │  "RSI is         │  "I see a        │  "Everyone is     │
+│   scared"        │   oversold"      │   double bottom" │   scared...       │
+│                  │                  │                  │   → BUY"          │
+└──────────────────┴──────────────────┴──────────────────┴───────────────────┘
+```
+
+## Features
+
+- **Contrarian Trading Philosophy**: Buy on extreme fear, sell on extreme greed
+- **Multi-Agent AI Council**: 4 specialized agents analyze markets from different angles
+- **Real-time Sentiment**: Fear & Greed Index, Telegram channels, LunarCrush social data
+- **Technical Analysis**: RSI, moving averages, volume analysis
+- **Chart Vision**: AI visually analyzes candlestick charts for patterns
+- **Paper Trading Mode**: Test strategies without risking real money
+- **Terminal Dashboard (TUI)**: Beautiful Rich-powered terminal interface
+- **Kraken Integration**: Execute trades on Kraken exchange
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                              Data Sources                                   │
+├─────────────────┬─────────────────┬─────────────────┬──────────────────────┤
+│  Kraken API     │  Telegram       │  LunarCrush     │  Fear & Greed Index  │
+│  (OHLCV Data)   │  (Social Posts) │  (Social Stats) │  (Market Sentiment)  │
+└────────┬────────┴────────┬────────┴────────┬────────┴──────────┬───────────┘
+         │                 │                 │                   │
+         ▼                 ▼                 ▼                   ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         LangGraph State Machine                             │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐    │
+│  │  Sentiment   │─▶│  Technical   │─▶│   Vision     │─▶│   Master     │    │
+│  │    Agent     │  │    Agent     │  │    Agent     │  │    Node      │    │
+│  └──────────────┘  └──────────────┘  └──────────────┘  └──────────────┘    │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                        │
+                                        ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           Trading Decision                                  │
+│                     BUY  │  SELL  │  HOLD                                   │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                        │
+                                        ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         Kraken Execution                                    │
+│                   (Paper Mode or Live Trading)                              │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ## Prerequisites
 
-- Node.js 20.x or higher
-- pnpm 10.x or higher
-- Python 3.11 or higher
-- Docker (for local PostgreSQL)
+- **Python 3.11+**
+- **Node.js 20+** and **pnpm 10+**
+- **Docker** (for PostgreSQL)
+- **API Keys** (see Configuration section)
 
-## Local Development Setup
+## Quick Start
 
-### 1. Clone and Install Dependencies
+### 1. Clone and Install
 
 ```bash
-# Clone the repository
 git clone <repository-url>
 cd contrarian-ai
 
 # Install Node.js dependencies
 pnpm install
 
-# Generate Prisma client
-pnpm db:generate
+# Set up Python environment
+cd apps/bot
+python3 -m venv .venv
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+cd ../..
 ```
 
-### 2. Set Up Environment Variables
+### 2. Configure Environment
 
 ```bash
-# Copy example environment file
+# Copy the example environment file
 cp .env.example .env
 
-# Edit .env with your configuration
-# For local development, the default values should work with docker-compose
+# Edit .env with your API keys (see Configuration section below)
 ```
 
-### 3. Start PostgreSQL with Docker
+### 3. Start Database
 
 ```bash
-# Start the database
+# Start PostgreSQL with Docker
 docker-compose up -d
 
-# Verify it's running
-docker-compose ps
-```
-
-### 4. Push Database Schema
-
-```bash
-# Push Prisma schema to database
+# Generate Prisma client and push schema
+pnpm db:generate
 pnpm db:push
 ```
 
-### 5. Start Development Servers
+### 4. Run the Bot
 
 ```bash
-# Start all apps (Next.js + FastAPI)
-pnpm dev
+cd apps/bot
+source .venv/bin/activate
 
-# Or start individually:
-# Next.js (web): http://localhost:3000
+# Start the bot server
+python main.py
+
+# In another terminal, run the TUI dashboard
+python tui.py
+```
+
+## Configuration
+
+Copy `.env.example` to `.env` and configure the following:
+
+### Required API Keys
+
+| Service | Purpose | Get Key From |
+|---------|---------|--------------|
+| **Kraken** | Price data & trading | [kraken.com/u/security/api](https://www.kraken.com/u/security/api) |
+| **Google AI (Gemini)** | AI agents (LLM) | [aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey) |
+
+### Optional API Keys (Enhanced Sentiment)
+
+| Service | Purpose | Get Key From |
+|---------|---------|--------------|
+| **Telegram** | Social sentiment scraping | [my.telegram.org/apps](https://my.telegram.org/apps) |
+| **LunarCrush** | Social metrics & galaxy scores | [lunarcrush.com/developers](https://lunarcrush.com/developers) |
+| **CryptoPanic** | News sentiment | [cryptopanic.com/developers/api](https://cryptopanic.com/developers/api/) |
+
+### Environment Variables
+
+```bash
+# Database (works with docker-compose defaults)
+DATABASE_URL="postgresql://contrarian:contrarian_dev@localhost:5432/contrarian_ai"
+
+# Kraken API
+KRAKEN_API_KEY="your-api-key"
+KRAKEN_API_SECRET="your-api-secret"
+KRAKEN_SANDBOX_MODE="true"  # IMPORTANT: Keep true for testing!
+
+# Google Gemini AI (required for AI agents)
+GOOGLE_AI_API_KEY="your-gemini-api-key"
+GEMINI_MODEL="gemini-1.5-flash"
+
+# Telegram (optional - for social sentiment)
+TELEGRAM_API_ID="your-api-id"
+TELEGRAM_API_HASH="your-api-hash"
+TELEGRAM_PHONE="+1234567890"
+
+# LunarCrush (optional)
+LUNARCRUSH_API_KEY="your-key"
+
+# Bot settings
+BOT_PORT=8000
+```
+
+### Telegram First-Time Setup
+
+If using Telegram sentiment scraping, you need to authenticate once:
+
+```bash
+cd apps/bot
+source .venv/bin/activate
+python -m services.socials.telegram_auth
+```
+
+This creates a session file that persists your authentication.
+
+## Running the Bot
+
+### Terminal Dashboard (TUI)
+
+The beautiful terminal interface for monitoring:
+
+```bash
+cd apps/bot
+python tui.py
+```
+
+**Keyboard Commands:**
+- `r` - Refresh display
+- `t` - Run test council session
+- `p` - Pause/unpause trading
+- `c` - Info about council cycle
+- `q` - Quit
+
+### Bot Server
+
+The FastAPI backend that runs the trading logic:
+
+```bash
+cd apps/bot
+python main.py
+```
+
+**API Endpoints:**
+- `GET /health` - Health check
+- `GET /api/council/test` - Run a test council session
+- `GET /api/status` - Get system status
+- `GET /docs` - OpenAPI documentation
+
+### Web Dashboard (Optional)
+
+```bash
+# From project root
 pnpm --filter @contrarian-ai/web dev
-
-# FastAPI (bot): http://localhost:8000
-# First, set up Python environment:
-cd apps/bot
-python -m venv .venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-uvicorn main:app --reload --port 8000
 ```
 
-## Available Scripts
+Access at http://localhost:3000
 
-### Root Level
+## Project Structure
 
-| Command | Description |
-|---------|-------------|
-| `pnpm dev` | Start all apps in development mode |
-| `pnpm build` | Build all apps |
-| `pnpm lint` | Run ESLint across all packages |
-| `pnpm test` | Run tests across all packages |
-| `pnpm db:generate` | Generate Prisma client |
-| `pnpm db:push` | Push schema to database |
-| `pnpm db:studio` | Open Prisma Studio |
+```
+contrarian-ai/
+├── apps/
+│   ├── bot/                    # Python Trading Engine
+│   │   ├── core/               # LangGraph state machine
+│   │   │   ├── graph.py        # Graph definition
+│   │   │   └── state.py        # State types
+│   │   ├── nodes/              # AI Agent implementations
+│   │   │   ├── sentiment.py    # Sentiment Agent
+│   │   │   ├── technical.py    # Technical Agent
+│   │   │   ├── vision.py       # Vision Agent
+│   │   │   └── master.py       # Master Node
+│   │   ├── services/           # External integrations
+│   │   │   ├── kraken.py       # Kraken API client
+│   │   │   ├── fear_greed.py   # Fear & Greed Index
+│   │   │   ├── lunarcrush.py   # LunarCrush API
+│   │   │   └── socials/        # Telegram scraping
+│   │   ├── main.py             # FastAPI entry point
+│   │   ├── tui.py              # Terminal dashboard
+│   │   └── config.py           # Configuration
+│   └── web/                    # Next.js Dashboard
+├── packages/
+│   └── database/               # Shared Prisma schema
+├── docker-compose.yml          # Local PostgreSQL
+└── .env.example                # Environment template
+```
 
-### App-Specific
+## How the AI Council Works
 
-| Command | Description |
-|---------|-------------|
-| `pnpm --filter @contrarian-ai/web dev` | Start Next.js dev server |
-| `pnpm --filter @contrarian-ai/web build` | Build Next.js app |
-| `pnpm --filter @contrarian-ai/web test` | Run Next.js tests |
+### 1. Sentiment Agent
+Analyzes market mood from multiple sources:
+- Fear & Greed Index (0-100 scale)
+- Telegram channel mentions
+- LunarCrush social metrics
 
-## Database Management
+**Contrarian Logic:** Fear score < 25 = BUY opportunity, > 75 = SELL opportunity
 
-### Prisma Studio
+### 2. Technical Agent
+Calculates technical indicators:
+- RSI (Relative Strength Index)
+- 50/200 period moving averages
+- Volume analysis
+
+**Output:** BULLISH / BEARISH / NEUTRAL signal with strength score
+
+### 3. Vision Agent
+Uses Gemini's vision capabilities to analyze chart images:
+- Pattern recognition (head & shoulders, double bottoms, etc.)
+- Support/resistance levels
+- "Scam wick" detection
+
+### 4. Master Node
+Synthesizes all agent inputs:
+1. **Pre-validation**: Checks for extreme conditions
+2. **LLM Synthesis**: Weighs all factors with contrarian bias
+3. **Safety Override**: Blocks dangerous trades
+
+**Output:** Final BUY / SELL / HOLD decision with reasoning
+
+## Safety Features
+
+- **Paper Trading Mode**: Default mode logs trades without executing
+- **Sandbox Mode**: Kraken sandbox for testing
+- **Max Drawdown Protection**: Stops trading if losses exceed threshold
+- **ATR-Based Stop Losses**: Dynamic risk management
+- **Emergency Stop**: Manual kill switch
+
+## Development
+
+### Running Tests
 
 ```bash
+cd apps/bot
+pytest tests/ -v
+```
+
+### Database Management
+
+```bash
+# Open Prisma Studio (visual database browser)
 pnpm db:studio
-```
 
-Opens a visual database browser at http://localhost:5555
-
-### Schema Changes
-
-1. Edit `packages/database/prisma/schema.prisma`
-2. Run `pnpm db:generate` to update the client
-3. Run `pnpm db:push` to apply changes to the database
-
-## Python Bot Setup
-
-```bash
-cd apps/bot
-
-# Create virtual environment
-python -m venv .venv
-
-# Activate virtual environment
-source .venv/bin/activate  # macOS/Linux
-# .venv\Scripts\activate   # Windows
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Run the bot
-uvicorn main:app --reload --port 8000
-
-# Access OpenAPI docs
-# http://localhost:8000/docs
-```
-
-## Docker
-
-### Start PostgreSQL
-
-```bash
-docker-compose up -d
-```
-
-### Stop PostgreSQL
-
-```bash
-docker-compose down
-```
-
-### Reset Database (warning: deletes all data)
-
-```bash
+# Reset database
 docker-compose down -v
 docker-compose up -d
 pnpm db:push
 ```
 
+### Adding New Assets
+
+Assets are managed in the database. Use Prisma Studio or the API to add new trading pairs.
+
 ## Troubleshooting
 
-### Port Already in Use
+### Bot won't start
+1. Check PostgreSQL is running: `docker-compose ps`
+2. Verify `.env` file exists with correct values
+3. Ensure virtual environment is activated
 
-If port 3000 (Next.js) or 5432 (PostgreSQL) is already in use:
+### Telegram authentication fails
+1. Verify API ID and hash are correct
+2. Run `python -m services.socials.telegram_auth` interactively
+3. Check phone number format includes country code
 
-```bash
-# Find process using port
-lsof -i :3000
-lsof -i :5432
+### No sentiment data
+1. Check API keys are configured
+2. Fear & Greed Index works without API key
+3. Telegram requires authentication (see above)
 
-# Kill the process
-kill -9 <PID>
-```
-
-### Prisma Client Not Found
-
-```bash
-pnpm db:generate
-```
-
-### Database Connection Issues
-
-1. Verify PostgreSQL is running: `docker-compose ps`
-2. Check DATABASE_URL in .env matches docker-compose.yml credentials
-3. Try restarting: `docker-compose down && docker-compose up -d`
-
-### Python Virtual Environment Issues
-
-```bash
-# Remove and recreate virtual environment
-rm -rf apps/bot/.venv
-cd apps/bot
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-```
+### TUI shows "NO_DB"
+1. Start PostgreSQL: `docker-compose up -d`
+2. Check DATABASE_URL in `.env`
+3. Run `pnpm db:push` to create tables
 
 ## Tech Stack
 
-- **Frontend**: Next.js 15, React 19, TypeScript, Tailwind CSS, Shadcn UI
-- **Backend**: Python 3.11, FastAPI, SQLModel
-- **Database**: PostgreSQL 15, Prisma 6
-- **Build**: Turborepo, pnpm workspaces
-- **Deployment**: Vercel (web), Railway (bot)
+| Component | Technology |
+|-----------|------------|
+| AI Orchestration | LangGraph |
+| LLM | Google Gemini 1.5 |
+| Backend | Python, FastAPI |
+| Database | PostgreSQL, Prisma |
+| TUI | Rich |
+| Exchange | Kraken API |
+| Frontend | Next.js 15, React 19 |
 
 ## License
 
 MIT
+
+## Disclaimer
+
+This software is for educational purposes only. Cryptocurrency trading involves substantial risk of loss. Never trade with money you cannot afford to lose. The authors are not responsible for any financial losses incurred through the use of this software.
+
+**Always start with `KRAKEN_SANDBOX_MODE="true"` and thoroughly test before considering live trading.**

@@ -299,8 +299,10 @@ class KrakenClient:
             # Convert to dict format
             result = []
             for ohlcv in ohlcv_data:
+                # Use naive datetime for Prisma compatibility (data is always UTC)
+                ts = datetime.fromtimestamp(ohlcv[0] / 1000, tz=timezone.utc).replace(tzinfo=None)
                 result.append({
-                    "timestamp": datetime.fromtimestamp(ohlcv[0] / 1000, tz=timezone.utc),
+                    "timestamp": ts,
                     "open": Decimal(str(ohlcv[1])),
                     "high": Decimal(str(ohlcv[2])),
                     "low": Decimal(str(ohlcv[3])),
