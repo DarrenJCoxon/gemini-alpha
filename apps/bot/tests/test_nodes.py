@@ -181,15 +181,16 @@ class TestVisionNode:
         assert "is_valid" in analysis
 
     def test_vision_node_stub_values(self):
-        """Test vision_node stub returns expected default values."""
+        """Test vision_node returns expected default values with no data."""
         state = create_initial_state(asset_symbol="SOLUSD")
         result = vision_node(state)
         analysis = result["vision_analysis"]
 
-        # Stub implementation returns default values
+        # With no candles, vision returns invalid signal
+        # Story 2.4: Updated to match real implementation behavior
         assert analysis["patterns_detected"] == []
-        assert analysis["is_valid"] is True
-        assert analysis["confidence_score"] == 50
+        assert analysis["is_valid"] is False  # No candles = invalid
+        assert analysis["confidence_score"] == 0  # No confidence without data
 
     def test_vision_node_patterns_is_list(self):
         """Test vision_node patterns_detected is a list."""
@@ -293,12 +294,14 @@ class TestMasterNode:
         assert isinstance(timestamp, datetime)
 
     def test_master_node_includes_reasoning(self):
-        """Test master_node reasoning mentions stub implementation."""
+        """Test master_node reasoning explains the decision."""
         state = create_initial_state(asset_symbol="SOLUSD")
         result = master_node(state)
 
+        # Story 2.4: Updated to match real implementation behavior
+        # Master node now provides pre-validation reasoning
         reasoning = result["final_decision"]["reasoning"]
-        assert "Stub" in reasoning or "stub" in reasoning.lower()
+        assert "Pre-validation" in reasoning or "HOLD" in reasoning
 
 
 class TestNodeIntegration:
@@ -353,7 +356,9 @@ class TestNodeIntegration:
         assert state["final_decision"] is not None
 
         # All fields should now be populated
+        # Story 2.4: Updated to match real implementation behavior
         assert state["sentiment_analysis"]["fear_score"] == 50
         assert state["technical_analysis"]["signal"] == "NEUTRAL"
-        assert state["vision_analysis"]["is_valid"] is True
+        # With no candles, vision returns is_valid=False
+        assert state["vision_analysis"]["is_valid"] is False
         assert state["final_decision"]["action"] == "HOLD"

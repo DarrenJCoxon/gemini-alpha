@@ -6,11 +6,13 @@ for automated trading operations.
 
 Story 1.3: Added Kraken ingestion scheduler and manual trigger endpoint.
 Story 2.1: Added LangGraph Council integration for AI-powered trading decisions.
+Story 2.4: Added 15-minute Council cycle for automated decision-making (Paper Trading).
 """
 
 import logging
 import os
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
 from dotenv import load_dotenv
@@ -21,9 +23,16 @@ from pydantic import BaseModel
 from config import get_config
 from core.graph import get_council_graph
 from core.state import create_initial_state
-from database import init_db
+from database import init_db, get_session_maker
 from services.kraken import close_kraken_client, get_kraken_client
-from services.scheduler import get_scheduler, ingest_kraken_data
+from services.scheduler import get_scheduler, ingest_kraken_data, run_council_cycle
+from services.data_loader import (
+    load_candles_for_asset,
+    load_sentiment_for_asset,
+    get_active_assets,
+    load_asset_by_symbol,
+)
+from services.session_logger import log_council_session, get_recent_sessions
 
 # Load environment variables
 load_dotenv()
@@ -34,7 +43,6 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
 )
 logger = logging.getLogger("contrarian_bot")
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
@@ -59,6 +67,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             logger.error(f"Initial ingestion failed: {e}")
 
     logger.info("Contrarian AI Bot started successfully")
+    logger.info("Mode: Paper Trading (no actual trade execution)")
 
     yield
 
@@ -73,7 +82,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 app = FastAPI(
     title="Contrarian AI Trading Bot",
     description="AI-powered cryptocurrency trading bot with contrarian sentiment analysis",
-    version="0.1.0",
+    version="0.2.0",
     lifespan=lifespan,
 )
 
@@ -93,7 +102,11 @@ app.add_middleware(
 @app.get("/")
 async def root() -> dict[str, str]:
     """Root endpoint returning API status."""
-    return {"status": "ok", "service": "contrarian-ai-bot"}
+    return {
+        "status": "ok",
+        "service": "contrarian-ai-bot",
+        "mode": "Paper Trading"
+    }
 
 
 @app.get("/health")
@@ -108,6 +121,7 @@ async def health_check() -> dict[str, Any]:
         "status": "healthy",
         "scheduler_running": scheduler.running,
         "scheduled_jobs": len(scheduler.get_jobs()),
+        "mode": "Paper Trading",
     }
 
 
@@ -294,8 +308,6 @@ async def test_council_graph() -> dict[str, Any]:
     Returns:
         Dict containing test results and graph status.
     """
-    from datetime import datetime, timezone
-
     logger.info("Council graph test initiated")
 
     try:
@@ -347,3 +359,190 @@ async def test_council_graph() -> dict[str, Any]:
             "graph_compiled": False,
             "error": str(e),
         }
+
+
+# =============================================================================
+# Story 2.4: Council Cycle Endpoints (Paper Trading)
+# =============================================================================
+
+
+@app.post("/api/council/cycle")
+async def trigger_council_cycle() -> dict[str, Any]:
+    """
+    Manually trigger a council cycle for all active assets.
+
+    Story 2.4: Master Node & Signal Logging
+
+    This endpoint bypasses the scheduler and runs a full council
+    cycle immediately. Useful for testing and on-demand analysis.
+
+    Note: Paper Trading mode - NO actual trade execution.
+
+    Returns:
+        Dict with cycle statistics
+    """
+    logger.info("Manual council cycle triggered via API")
+    try:
+        stats = await run_council_cycle()
+        return {
+            "status": "completed",
+            "mode": "Paper Trading",
+            "stats": stats,
+        }
+    except Exception as e:
+        logger.error(f"Manual council cycle failed: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Council cycle failed: {str(e)}",
+        )
+
+
+@app.post("/api/council/run/{asset_symbol}")
+async def manual_council_run(asset_symbol: str) -> dict[str, Any]:
+    """
+    Manually trigger council session for a single asset.
+
+    Story 2.4: Master Node & Signal Logging
+
+    Runs the council for a specific asset and logs the decision
+    to the database. Useful for testing individual assets.
+
+    Note: Paper Trading mode - NO actual trade execution.
+
+    Args:
+        asset_symbol: Trading pair symbol (e.g., "SOLUSD")
+
+    Returns:
+        Dict with session result and decision
+    """
+    logger.info(f"Manual council run triggered for {asset_symbol}")
+
+    try:
+        # Get the cached Council graph
+        council_graph = get_council_graph()
+
+        # Get async session
+        session_maker = get_session_maker()
+        async with session_maker() as session:
+            # Load asset
+            asset = await load_asset_by_symbol(asset_symbol, session)
+            if not asset:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Asset not found: {asset_symbol}"
+                )
+
+            # Load data
+            candles = await load_candles_for_asset(asset.id, limit=200, session=session)
+            sentiment = await load_sentiment_for_asset(asset_symbol, hours=24, session=session)
+
+            if len(candles) < 50:
+                return {
+                    "status": "skipped",
+                    "reason": f"Insufficient candle data ({len(candles)} candles, need 50+)",
+                    "asset": asset_symbol,
+                }
+
+            # Build initial state
+            initial_state = create_initial_state(
+                asset_symbol=asset_symbol,
+                candles_data=candles,
+                sentiment_data=sentiment,
+            )
+
+            # Run council
+            final_state = council_graph.invoke(initial_state)
+
+            # Log session (Paper Trading)
+            council_session = await log_council_session(final_state, asset.id, session=session)
+
+            # Extract decision
+            decision = final_state.get("final_decision", {})
+
+            return {
+                "status": "completed",
+                "mode": "Paper Trading",
+                "asset": asset_symbol,
+                "session_id": council_session.id,
+                "decision": {
+                    "action": decision.get("action"),
+                    "confidence": decision.get("confidence"),
+                    "reasoning": decision.get("reasoning"),
+                },
+                "analyses": {
+                    "sentiment": final_state.get("sentiment_analysis"),
+                    "technical": final_state.get("technical_analysis"),
+                    "vision": final_state.get("vision_analysis"),
+                }
+            }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Manual council run failed for {asset_symbol}: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Council run failed: {str(e)}",
+        )
+
+
+@app.get("/api/council/sessions/{asset_symbol}")
+async def get_asset_sessions(
+    asset_symbol: str,
+    limit: int = 10
+) -> dict[str, Any]:
+    """
+    Get recent council sessions for an asset.
+
+    Story 2.4: Master Node & Signal Logging
+
+    Returns the most recent council decisions for UI display
+    and performance analysis.
+
+    Args:
+        asset_symbol: Trading pair symbol (e.g., "SOLUSD")
+        limit: Maximum number of sessions to return (default: 10)
+
+    Returns:
+        Dict with list of recent sessions
+    """
+    try:
+        session_maker = get_session_maker()
+        async with session_maker() as session:
+            # Load asset
+            asset = await load_asset_by_symbol(asset_symbol, session)
+            if not asset:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Asset not found: {asset_symbol}"
+                )
+
+            # Get recent sessions
+            sessions = await get_recent_sessions(asset.id, limit=limit, session=session)
+
+            # Format for response
+            session_list = []
+            for s in sessions:
+                session_list.append({
+                    "id": s.id,
+                    "timestamp": s.timestamp.isoformat() if s.timestamp else None,
+                    "sentiment_score": s.sentiment_score,
+                    "technical_signal": s.technical_signal,
+                    "final_decision": s.final_decision.value if s.final_decision else None,
+                    "reasoning_log": s.reasoning_log,
+                })
+
+            return {
+                "asset": asset_symbol,
+                "sessions": session_list,
+                "count": len(session_list),
+            }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get sessions for {asset_symbol}: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get sessions: {str(e)}",
+        )

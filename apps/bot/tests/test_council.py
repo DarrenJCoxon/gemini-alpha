@@ -283,14 +283,15 @@ class TestCouncilSessionStubBehavior:
         assert data["sentiment_analysis"]["fear_score"] == 50
 
     def test_session_stub_vision_valid(self, client):
-        """Test session stub returns valid chart."""
+        """Test session vision returns is_valid=False with no data."""
         response = client.post(
             "/api/council/session",
             json={"asset_symbol": "SOLUSD"}
         )
 
         data = response.json()
-        assert data["vision_analysis"]["is_valid"] is True
+        # Story 2.4: With no candles, vision returns is_valid=False
+        assert data["vision_analysis"]["is_valid"] is False
 
     def test_session_stub_decision_hold(self, client):
         """Test session stub returns HOLD decision."""

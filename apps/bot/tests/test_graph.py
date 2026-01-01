@@ -190,13 +190,14 @@ class TestGraphStubBehavior:
         assert result["sentiment_analysis"]["fear_score"] == 50
 
     def test_graph_stub_returns_valid_chart(self):
-        """Test stub returns is_valid=True (no manipulation detected)."""
+        """Test vision returns is_valid=False with no data."""
         graph = build_council_graph()
         state = create_initial_state(asset_symbol="SOLUSD")
 
         result = graph.invoke(state)
 
-        assert result["vision_analysis"]["is_valid"] is True
+        # Story 2.4: With no candles, vision returns is_valid=False
+        assert result["vision_analysis"]["is_valid"] is False
         assert result["vision_analysis"]["patterns_detected"] == []
 
     def test_graph_stub_returns_hold_decision(self):

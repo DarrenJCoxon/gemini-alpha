@@ -286,6 +286,155 @@ async def ingest_kraken_data() -> dict[str, Any]:
 # Sentiment ingestion logger
 sentiment_logger = logging.getLogger("sentiment_ingestor")
 
+# Council cycle logger
+council_logger = logging.getLogger("council_cycle")
+
+
+async def run_council_cycle() -> dict[str, Any]:
+    """
+    Run council decision cycle for all active assets.
+
+    Story 2.4: Master Node & Signal Logging
+
+    Called every 15 minutes by scheduler. Processes each active asset
+    through the Council of AI Agents and logs decisions to database.
+
+    Note: Paper Trading Mode - NO actual trade execution.
+
+    Returns:
+        Dict with cycle statistics
+    """
+    from core.graph import get_council_graph
+    from core.state import create_initial_state
+    from services.data_loader import (
+        load_candles_for_asset,
+        load_sentiment_for_asset,
+        get_active_assets as load_active_assets,
+    )
+    from services.session_logger import log_council_session
+
+    start_time = datetime.now(timezone.utc)
+    council_logger.info(f"\n{'='*60}")
+    council_logger.info(f"[Cycle] Starting council cycle at {start_time.isoformat()}")
+    council_logger.info(f"{'='*60}")
+
+    stats = {
+        "start_time": start_time.isoformat(),
+        "total_assets": 0,
+        "processed": 0,
+        "skipped": 0,
+        "buy_signals": 0,
+        "sell_signals": 0,
+        "hold_signals": 0,
+        "errors": [],
+    }
+
+    try:
+        # Get the cached Council graph
+        council_graph = get_council_graph()
+
+        # Get async session
+        session_maker = get_session_maker()
+        async with session_maker() as session:
+            # Get active assets
+            assets = await load_active_assets(session)
+            stats["total_assets"] = len(assets)
+
+            if not assets:
+                council_logger.warning("[Cycle] No active assets found in database")
+                return stats
+
+            council_logger.info(f"[Cycle] Processing {len(assets)} active assets")
+
+            for asset in assets:
+                council_logger.info(f"\n[Cycle] Processing {asset.symbol}...")
+
+                try:
+                    # Load data for asset
+                    candles = await load_candles_for_asset(
+                        asset.id, limit=200, session=session
+                    )
+                    sentiment = await load_sentiment_for_asset(
+                        asset.symbol, hours=24, session=session
+                    )
+
+                    # Check for sufficient data
+                    if len(candles) < 50:
+                        council_logger.warning(
+                            f"[Cycle] Skipping {asset.symbol} - insufficient candle data "
+                            f"({len(candles)} candles, need 50+)"
+                        )
+                        stats["skipped"] += 1
+                        continue
+
+                    # Build initial state
+                    initial_state = create_initial_state(
+                        asset_symbol=asset.symbol,
+                        candles_data=candles,
+                        sentiment_data=sentiment,
+                    )
+
+                    # Run council graph
+                    council_logger.info(f"[Cycle] Running council for {asset.symbol}...")
+                    final_state = council_graph.invoke(initial_state)
+
+                    # Log session to database (Paper Trading - no trade execution)
+                    await log_council_session(final_state, asset.id, session=session)
+
+                    # Extract decision for stats
+                    decision = final_state.get("final_decision", {})
+                    action = decision.get("action", "HOLD")
+
+                    council_logger.info(
+                        f"[Cycle] {asset.symbol} Decision: {action} "
+                        f"(Confidence: {decision.get('confidence', 0)}%)"
+                    )
+
+                    # Update stats
+                    stats["processed"] += 1
+                    if action == "BUY":
+                        stats["buy_signals"] += 1
+                        council_logger.info(
+                            f"[Cycle] BUY signal logged - Paper Trading mode (no execution)"
+                        )
+                    elif action == "SELL":
+                        stats["sell_signals"] += 1
+                        council_logger.info(
+                            f"[Cycle] SELL signal logged - Paper Trading mode (no execution)"
+                        )
+                    else:
+                        stats["hold_signals"] += 1
+
+                except Exception as e:
+                    error_msg = f"Error processing {asset.symbol}: {str(e)}"
+                    council_logger.error(f"[Cycle] {error_msg}")
+                    stats["errors"].append(error_msg)
+                    continue
+
+    except Exception as e:
+        error_msg = f"Council cycle error: {str(e)}"
+        council_logger.error(f"[Cycle] {error_msg}")
+        stats["errors"].append(error_msg)
+
+    # Calculate duration
+    end_time = datetime.now(timezone.utc)
+    duration = (end_time - start_time).total_seconds()
+    stats["end_time"] = end_time.isoformat()
+    stats["duration_seconds"] = duration
+
+    council_logger.info(f"\n[Cycle] Council cycle complete")
+    council_logger.info(
+        f"[Cycle] Processed: {stats['processed']}/{stats['total_assets']}, "
+        f"Skipped: {stats['skipped']}, "
+        f"BUY: {stats['buy_signals']}, SELL: {stats['sell_signals']}, "
+        f"HOLD: {stats['hold_signals']}, "
+        f"Duration: {duration:.2f}s"
+    )
+    council_logger.info(f"{'='*60}\n")
+
+    return stats
+
+
 # Global asset rotator for LunarCrush rate limiting
 _asset_rotator: AssetRotator | None = None
 
@@ -461,6 +610,22 @@ def create_scheduler() -> AsyncIOScheduler:
 
     sentiment_logger.info(
         f"Scheduler configured with Sentiment ingestion at minutes: {config.scheduler.ingest_cron_minutes}"
+    )
+
+    # Add the Council cycle job (Story 2.4)
+    # Runs at 15-minute intervals, offset by 5 minutes to allow data ingestion first
+    # e.g., if ingestion runs at :00, :15, :30, :45, council runs at :05, :20, :35, :50
+    scheduler.add_job(
+        run_council_cycle,
+        CronTrigger(minute="5,20,35,50"),
+        id="council_cycle",
+        name="Council Decision Cycle (Paper Trading)",
+        replace_existing=True,
+        max_instances=1,  # Prevent overlapping executions
+    )
+
+    council_logger.info(
+        "Scheduler configured with Council cycle at minutes: 5,20,35,50 (Paper Trading mode)"
     )
 
     return scheduler
