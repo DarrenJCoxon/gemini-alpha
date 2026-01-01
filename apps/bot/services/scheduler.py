@@ -6,18 +6,20 @@ This module provides the scheduler setup and the main ingestion jobs:
 - Sentiment data fetching from LunarCrush/socials at 15-minute intervals (Story 1.4)
 - Position management every 15 minutes (Story 3.3)
 - Safety checks with drawdown guard every 15 minutes (Story 3.4)
+- Quality asset universe filtering (Story 5.2)
 
 Based on Story 1.3: Kraken Data Ingestor requirements.
 Based on Story 1.4: Sentiment Ingestor requirements.
 Based on Story 3.3: Position Manager requirements.
 Based on Story 3.4: Global Safety Switch requirements.
+Based on Story 5.2: Asset Universe Reduction requirements.
 """
 
 import asyncio
 import logging
 from datetime import datetime, timezone
 from decimal import Decimal
-from typing import Any
+from typing import Any, List
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -33,6 +35,11 @@ from services.sentiment import (
     AssetRotator,
     save_sentiment_log,
 )
+from services.asset_universe import (
+    get_full_asset_universe,
+    get_asset_tier,
+    AssetTier,
+)
 
 # Configure logging
 logger = logging.getLogger("kraken_ingestor")
@@ -42,11 +49,13 @@ async def get_active_assets(session: AsyncSession) -> list[Asset]:
     """
     Fetch all active assets from the database.
 
+    Story 5.2: Now filters to quality asset universe only.
+
     Args:
         session: Database session
 
     Returns:
-        List of active Asset objects
+        List of active Asset objects in quality universe
     """
     from sqlmodel import select
 
@@ -54,6 +63,40 @@ async def get_active_assets(session: AsyncSession) -> list[Asset]:
     result = await session.execute(statement)
     assets = result.scalars().all()
     return list(assets)
+
+
+async def get_quality_assets(session: AsyncSession) -> List[Asset]:
+    """
+    Fetch quality assets for council processing.
+
+    Story 5.2: Returns only assets in the quality universe (Tier 1-3).
+    This is the primary function for council cycle asset iteration.
+
+    Args:
+        session: Database session
+
+    Returns:
+        List of Asset objects in quality universe (8-10 assets)
+    """
+    from sqlmodel import select
+
+    # Get quality asset symbols from configuration
+    quality_symbols = get_full_asset_universe()
+
+    # Query only assets in the quality universe
+    statement = select(Asset).where(
+        Asset.is_active == True,  # noqa: E712
+        Asset.symbol.in_(quality_symbols),
+    )
+    result = await session.execute(statement)
+    assets = list(result.scalars().all())
+
+    logger.info(
+        f"Quality universe: {len(assets)} assets "
+        f"(configured: {len(quality_symbols)})"
+    )
+
+    return assets
 
 
 async def upsert_candle(
@@ -578,18 +621,20 @@ async def run_council_cycle() -> dict[str, Any]:
         # Get async session
         session_maker = get_session_maker()
         async with session_maker() as session:
-            # Get active assets
-            assets = await load_active_assets(session)
+            # Story 5.2: Get quality assets only (not all active assets)
+            assets = await get_quality_assets(session)
             stats["total_assets"] = len(assets)
 
             if not assets:
-                council_logger.warning("[Cycle] No active assets found in database")
+                council_logger.warning("[Cycle] No quality assets found in database")
                 return stats
 
-            council_logger.info(f"[Cycle] Processing {len(assets)} active assets")
+            council_logger.info(f"[Cycle] Processing {len(assets)} quality assets")
 
             for asset in assets:
-                council_logger.info(f"\n[Cycle] Processing {asset.symbol}...")
+                # Story 5.2: Log tier information
+                tier = get_asset_tier(asset.symbol)
+                council_logger.info(f"\n[Cycle] Processing {asset.symbol} ({tier.value})...")
 
                 try:
                     # Load data for asset

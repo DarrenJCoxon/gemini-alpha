@@ -6,7 +6,7 @@ for type-safe database operations in Python.
 """
 
 from .base import Decision, TradeStatus, generate_cuid
-from .asset import Asset
+from .asset import Asset, AssetTier
 from .candle import Candle
 from .sentiment import SentimentLog
 from .council import CouncilSession
@@ -18,6 +18,7 @@ __all__ = [
     "Decision",
     "TradeStatus",
     "SystemStatus",
+    "AssetTier",
     # Utility functions
     "generate_cuid",
     # Models
