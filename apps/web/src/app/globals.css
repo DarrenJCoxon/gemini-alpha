@@ -3,25 +3,21 @@
 
 @custom-variant dark (&:is(.dark *));
 
-/* JetBrains Mono for monospace data display */
-@font-face {
-  font-family: 'JetBrains Mono';
-  src: url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap');
-}
-
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-jetbrains-mono, var(--font-geist-mono));
+  --font-sans: var(--font-inter);
+  --font-mono: var(--font-mono);
 
   /* Custom trading colors */
   --color-profit: var(--profit);
   --color-loss: var(--loss);
-  --color-neutral: var(--neutral);
+  --color-warning: var(--warning);
   --color-profit-foreground: var(--profit-foreground);
   --color-loss-foreground: var(--loss-foreground);
-  --color-neutral-foreground: var(--neutral-foreground);
+  --color-warning-foreground: var(--warning-foreground);
+
+  /* Shadcn color mappings */
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -60,89 +56,129 @@
   --radius-4xl: calc(var(--radius) + 16px);
 }
 
-:root {
-  --radius: 0.625rem;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.646 0.222 41.116);
-  --chart-2: oklch(0.6 0.118 184.704);
-  --chart-3: oklch(0.398 0.07 227.392);
-  --chart-4: oklch(0.828 0.189 84.429);
-  --chart-5: oklch(0.769 0.188 70.08);
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+/*
+ * Institutional Dark Theme - ContrarianAI
+ * Based on Zinc color palette for professional trading interface
+ *
+ * Color Reference:
+ * - Background: zinc-950 (#09090b)
+ * - Surface/Cards: zinc-900 (#18181b)
+ * - Borders: zinc-800 (#27272a)
+ * - Primary/Buy: emerald-500 (#10b981)
+ * - Destructive/Sell: rose-500 (#f43f5e)
+ * - Warning: amber-500 (#f59e0b)
+ * - Text Primary: zinc-100 (#f4f4f5)
+ * - Text Muted: zinc-400 (#a1a1aa)
+ */
 
-  /* Custom trading colors - light mode */
-  --profit: oklch(0.72 0.19 142);
-  --profit-foreground: oklch(0.985 0 0);
-  --loss: oklch(0.63 0.24 29);
-  --loss-foreground: oklch(0.985 0 0);
-  --neutral: oklch(0.556 0 0);
-  --neutral-foreground: oklch(0.985 0 0);
+:root {
+  --radius: 0.5rem;
+
+  /* Zinc-950 background (institutional dark) */
+  --background: 240 10% 3.9%;      /* zinc-950: #09090b */
+  --foreground: 0 0% 95.7%;        /* zinc-100: #f4f4f5 */
+
+  /* Cards and surfaces - zinc-900 */
+  --card: 240 10% 6.9%;            /* zinc-900: #18181b */
+  --card-foreground: 0 0% 95.7%;
+
+  /* Popovers */
+  --popover: 240 10% 6.9%;
+  --popover-foreground: 0 0% 95.7%;
+
+  /* Primary - Emerald for bullish/buy actions */
+  --primary: 160 84% 39%;          /* emerald-500: #10b981 */
+  --primary-foreground: 0 0% 100%;
+
+  /* Secondary - zinc-800 */
+  --secondary: 240 5% 15%;         /* zinc-800: #27272a */
+  --secondary-foreground: 0 0% 95.7%;
+
+  /* Muted text */
+  --muted: 240 5% 15%;
+  --muted-foreground: 240 5% 64.9%; /* zinc-400: #a1a1aa */
+
+  /* Accent - same as primary for consistency */
+  --accent: 160 84% 39%;
+  --accent-foreground: 0 0% 100%;
+
+  /* Destructive - Rose for bearish/sell actions */
+  --destructive: 349 89% 60%;      /* rose-500: #f43f5e */
+  --destructive-foreground: 0 0% 100%;
+
+  /* Warning - Amber */
+  --warning: 38 92% 50%;           /* amber-500: #f59e0b */
+  --warning-foreground: 0 0% 0%;
+
+  /* Borders and inputs */
+  --border: 240 5% 17%;            /* zinc-800: #27272a */
+  --input: 240 5% 17%;
+  --ring: 160 84% 39%;
+
+  /* Chart colors */
+  --chart-1: 160 84% 39%;          /* emerald-500 */
+  --chart-2: 349 89% 60%;          /* rose-500 */
+  --chart-3: 38 92% 50%;           /* amber-500 */
+  --chart-4: 217 91% 60%;          /* blue-500 */
+  --chart-5: 262 83% 58%;          /* violet-500 */
+
+  /* Sidebar */
+  --sidebar: 240 10% 6.9%;         /* zinc-900 */
+  --sidebar-foreground: 0 0% 95.7%;
+  --sidebar-primary: 160 84% 39%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 240 5% 15%;
+  --sidebar-accent-foreground: 0 0% 95.7%;
+  --sidebar-border: 240 5% 17%;
+  --sidebar-ring: 160 84% 39%;
+
+  /* Trading semantic colors */
+  --profit: 160 84% 39%;           /* emerald-500 */
+  --profit-foreground: 0 0% 100%;
+  --loss: 349 89% 60%;             /* rose-500 */
+  --loss-foreground: 0 0% 100%;
 }
 
+/* Dark mode is the default - this is for consistency */
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.488 0.243 264.376);
-  --chart-2: oklch(0.696 0.17 162.48);
-  --chart-3: oklch(0.769 0.188 70.08);
-  --chart-4: oklch(0.627 0.265 303.9);
-  --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
-
-  /* Custom trading colors - dark mode (neon accents) */
-  --profit: oklch(0.8 0.22 142);
-  --profit-foreground: oklch(0.145 0 0);
-  --loss: oklch(0.7 0.25 29);
-  --loss-foreground: oklch(0.145 0 0);
-  --neutral: oklch(0.708 0 0);
-  --neutral-foreground: oklch(0.145 0 0);
+  --background: 240 10% 3.9%;
+  --foreground: 0 0% 95.7%;
+  --card: 240 10% 6.9%;
+  --card-foreground: 0 0% 95.7%;
+  --popover: 240 10% 6.9%;
+  --popover-foreground: 0 0% 95.7%;
+  --primary: 160 84% 39%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 240 5% 15%;
+  --secondary-foreground: 0 0% 95.7%;
+  --muted: 240 5% 15%;
+  --muted-foreground: 240 5% 64.9%;
+  --accent: 160 84% 39%;
+  --accent-foreground: 0 0% 100%;
+  --destructive: 349 89% 60%;
+  --destructive-foreground: 0 0% 100%;
+  --warning: 38 92% 50%;
+  --warning-foreground: 0 0% 0%;
+  --border: 240 5% 17%;
+  --input: 240 5% 17%;
+  --ring: 160 84% 39%;
+  --chart-1: 160 84% 39%;
+  --chart-2: 349 89% 60%;
+  --chart-3: 38 92% 50%;
+  --chart-4: 217 91% 60%;
+  --chart-5: 262 83% 58%;
+  --sidebar: 240 10% 6.9%;
+  --sidebar-foreground: 0 0% 95.7%;
+  --sidebar-primary: 160 84% 39%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 240 5% 15%;
+  --sidebar-accent-foreground: 0 0% 95.7%;
+  --sidebar-border: 240 5% 17%;
+  --sidebar-ring: 160 84% 39%;
+  --profit: 160 84% 39%;
+  --profit-foreground: 0 0% 100%;
+  --loss: 349 89% 60%;
+  --loss-foreground: 0 0% 100%;
 }
 
 @layer base {
@@ -151,5 +187,24 @@
   }
   body {
     @apply bg-background text-foreground;
+  }
+}
+
+/* Semantic utility classes for trading UI */
+@layer utilities {
+  .text-profit {
+    @apply text-emerald-500;
+  }
+  .text-loss {
+    @apply text-rose-500;
+  }
+  .text-warning {
+    @apply text-amber-500;
+  }
+  .bg-surface {
+    @apply bg-zinc-900;
+  }
+  .border-subtle {
+    @apply border-zinc-800;
   }
 }
