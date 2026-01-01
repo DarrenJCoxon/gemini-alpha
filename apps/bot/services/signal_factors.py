@@ -12,7 +12,9 @@ Factors are checked by factor_checkers.py and aggregated
 in the decision logic to determine trade entry/exit.
 """
 
+from dataclasses import dataclass, field
 from enum import Enum
+from typing import List, Any
 
 
 class BuyFactor(str, Enum):
@@ -42,6 +44,13 @@ class BuyFactor(str, Enum):
     FEAR_HIGH = "FEAR_HIGH"
     VOLUME_SPIKE = "VOLUME_SPIKE"
     GOLDEN_CROSS = "GOLDEN_CROSS"
+
+    # Story 5.3: Multi-factor confirmation factors
+    EXTREME_FEAR = "EXTREME_FEAR"
+    PRICE_AT_SUPPORT = "PRICE_AT_SUPPORT"
+    VOLUME_CAPITULATION = "VOLUME_CAPITULATION"
+    BULLISH_TECHNICALS = "BULLISH_TECHNICALS"
+    VISION_VALIDATED = "VISION_VALIDATED"
 
     # Enhanced indicator factors (Story 5.7)
     MACD_BULLISH = "MACD_BULLISH"
@@ -79,6 +88,13 @@ class SellFactor(str, Enum):
     VOLUME_DECLINE = "VOLUME_DECLINE"
     DEATH_CROSS = "DEATH_CROSS"
 
+    # Story 5.3: Multi-factor confirmation factors
+    EXTREME_GREED = "EXTREME_GREED"
+    PRICE_AT_RESISTANCE = "PRICE_AT_RESISTANCE"
+    VOLUME_EXHAUSTION = "VOLUME_EXHAUSTION"
+    BEARISH_TECHNICALS = "BEARISH_TECHNICALS"
+    VISION_BEARISH = "VISION_BEARISH"
+
     # Enhanced indicator factors (Story 5.7)
     MACD_BEARISH = "MACD_BEARISH"
     BOLLINGER_OVERBOUGHT = "BOLLINGER_OVERBOUGHT"
@@ -109,3 +125,34 @@ class FactorWeight(float, Enum):
     OBV = 1.0
     ADX = 1.25  # Important for contrarian
     VWAP = 0.9
+
+
+@dataclass
+class FactorResult:
+    """Result of checking a single factor."""
+    factor: str
+    triggered: bool
+    value: float
+    threshold: float
+    weight: float
+    reasoning: str
+
+
+@dataclass
+class MultiFactorAnalysis:
+    """
+    Result of multi-factor analysis for trading decisions.
+
+    Contains detailed breakdown of all factors checked,
+    which were triggered, and overall confidence.
+    """
+    signal_type: str  # "BUY", "SELL", or "HOLD"
+    factors_triggered: List[Any] = field(default_factory=list)
+    factors_not_triggered: List[Any] = field(default_factory=list)
+    total_factors_checked: int = 0
+    factors_met: int = 0
+    weighted_score: float = 0.0
+    min_factors_required: int = 3
+    passes_threshold: bool = False
+    confidence: float = 0.0
+    reasoning: str = ""

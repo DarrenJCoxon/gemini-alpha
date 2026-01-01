@@ -509,3 +509,213 @@ def count_triggered_factors(results: List[FactorResult]) -> int:
         Number of triggered factors
     """
     return sum(1 for r in results if r.triggered)
+
+
+# =============================================================================
+# Story 5.3: Original Multi-Factor Confirmation Checkers
+# =============================================================================
+
+def check_extreme_fear(sentiment_analysis: Dict[str, Any]) -> FactorResult:
+    """Check if Fear & Greed index indicates extreme fear."""
+    fear_score = sentiment_analysis.get("fear_score", 50)
+    threshold = 25
+    triggered = fear_score < threshold
+
+    return FactorResult(
+        factor=BuyFactor.EXTREME_FEAR.value if hasattr(BuyFactor, 'EXTREME_FEAR') else "EXTREME_FEAR",
+        triggered=triggered,
+        value=fear_score,
+        threshold=threshold,
+        weight=1.0,
+        reasoning=f"Fear & Greed: {fear_score} ({'extreme fear' if triggered else 'not extreme fear'})"
+    )
+
+
+def check_extreme_greed(sentiment_analysis: Dict[str, Any]) -> FactorResult:
+    """Check if Fear & Greed index indicates extreme greed."""
+    fear_score = sentiment_analysis.get("fear_score", 50)
+    threshold = 75
+    triggered = fear_score > threshold
+
+    return FactorResult(
+        factor=SellFactor.EXTREME_GREED.value if hasattr(SellFactor, 'EXTREME_GREED') else "EXTREME_GREED",
+        triggered=triggered,
+        value=fear_score,
+        threshold=threshold,
+        weight=1.0,
+        reasoning=f"Fear & Greed: {fear_score} ({'extreme greed' if triggered else 'not extreme greed'})"
+    )
+
+
+def check_rsi_oversold(technical_analysis: Dict[str, Any]) -> FactorResult:
+    """Check if RSI indicates oversold conditions."""
+    rsi = technical_analysis.get("rsi", 50)
+    threshold = 30
+    triggered = rsi < threshold
+
+    return FactorResult(
+        factor=BuyFactor.RSI_OVERSOLD.value if hasattr(BuyFactor, 'RSI_OVERSOLD') else "RSI_OVERSOLD",
+        triggered=triggered,
+        value=rsi,
+        threshold=threshold,
+        weight=1.0,
+        reasoning=f"RSI: {rsi:.1f} ({'oversold' if triggered else 'not oversold'})"
+    )
+
+
+def check_rsi_overbought(technical_analysis: Dict[str, Any]) -> FactorResult:
+    """Check if RSI indicates overbought conditions."""
+    rsi = technical_analysis.get("rsi", 50)
+    threshold = 70
+    triggered = rsi > threshold
+
+    return FactorResult(
+        factor=SellFactor.RSI_OVERBOUGHT.value if hasattr(SellFactor, 'RSI_OVERBOUGHT') else "RSI_OVERBOUGHT",
+        triggered=triggered,
+        value=rsi,
+        threshold=threshold,
+        weight=1.0,
+        reasoning=f"RSI: {rsi:.1f} ({'overbought' if triggered else 'not overbought'})"
+    )
+
+
+def check_price_at_support(technical_analysis: Dict[str, Any], current_price: float) -> FactorResult:
+    """Check if price is near support (within 3% of SMA200)."""
+    sma_200 = technical_analysis.get("sma_200", current_price)
+    if sma_200 is None or sma_200 == 0:
+        sma_200 = current_price
+
+    distance_pct = ((current_price - sma_200) / sma_200) * 100 if sma_200 else 0
+    threshold = 3.0
+    triggered = abs(distance_pct) <= threshold and distance_pct <= 0
+
+    return FactorResult(
+        factor=BuyFactor.PRICE_AT_SUPPORT.value if hasattr(BuyFactor, 'PRICE_AT_SUPPORT') else "PRICE_AT_SUPPORT",
+        triggered=triggered,
+        value=distance_pct,
+        threshold=threshold,
+        weight=1.0,
+        reasoning=f"Price {distance_pct:.1f}% from SMA200 ({'at support' if triggered else 'not at support'})"
+    )
+
+
+def check_price_at_resistance(technical_analysis: Dict[str, Any], current_price: float) -> FactorResult:
+    """Check if price is extended above SMA200 (resistance)."""
+    sma_200 = technical_analysis.get("sma_200", current_price)
+    if sma_200 is None or sma_200 == 0:
+        sma_200 = current_price
+
+    distance_pct = ((current_price - sma_200) / sma_200) * 100 if sma_200 else 0
+    threshold = 10.0
+    triggered = distance_pct >= threshold
+
+    return FactorResult(
+        factor=SellFactor.PRICE_AT_RESISTANCE.value if hasattr(SellFactor, 'PRICE_AT_RESISTANCE') else "PRICE_AT_RESISTANCE",
+        triggered=triggered,
+        value=distance_pct,
+        threshold=threshold,
+        weight=1.0,
+        reasoning=f"Price {distance_pct:.1f}% above SMA200 ({'at resistance' if triggered else 'not at resistance'})"
+    )
+
+
+def check_volume_capitulation(technical_analysis: Dict[str, Any]) -> FactorResult:
+    """Check if volume indicates capitulation (> 2x average)."""
+    volume_delta = technical_analysis.get("volume_delta", 0)
+    threshold = 100  # 100% above average (2x)
+    triggered = volume_delta >= threshold
+
+    return FactorResult(
+        factor=BuyFactor.VOLUME_CAPITULATION.value if hasattr(BuyFactor, 'VOLUME_CAPITULATION') else "VOLUME_CAPITULATION",
+        triggered=triggered,
+        value=volume_delta,
+        threshold=threshold,
+        weight=1.0,
+        reasoning=f"Volume delta: {volume_delta:.1f}% ({'capitulation' if triggered else 'normal'})"
+    )
+
+
+def check_volume_exhaustion(technical_analysis: Dict[str, Any]) -> FactorResult:
+    """Check if volume indicates exhaustion (declining)."""
+    volume_delta = technical_analysis.get("volume_delta", 0)
+    threshold = -30  # Below -30% of average
+    triggered = volume_delta <= threshold
+
+    return FactorResult(
+        factor=SellFactor.VOLUME_EXHAUSTION.value if hasattr(SellFactor, 'VOLUME_EXHAUSTION') else "VOLUME_EXHAUSTION",
+        triggered=triggered,
+        value=volume_delta,
+        threshold=threshold,
+        weight=1.0,
+        reasoning=f"Volume delta: {volume_delta:.1f}% ({'exhaustion' if triggered else 'normal'})"
+    )
+
+
+def check_bullish_technicals(technical_analysis: Dict[str, Any]) -> FactorResult:
+    """Check if overall technical signal is bullish."""
+    signal = technical_analysis.get("signal", "NEUTRAL")
+    strength = technical_analysis.get("strength", 0)
+    triggered = signal == "BULLISH" and strength >= 50
+
+    return FactorResult(
+        factor=BuyFactor.BULLISH_TECHNICALS.value if hasattr(BuyFactor, 'BULLISH_TECHNICALS') else "BULLISH_TECHNICALS",
+        triggered=triggered,
+        value=strength,
+        threshold=50,
+        weight=1.0,
+        reasoning=f"Technical signal: {signal} (strength: {strength})"
+    )
+
+
+def check_bearish_technicals(technical_analysis: Dict[str, Any]) -> FactorResult:
+    """Check if overall technical signal is bearish."""
+    signal = technical_analysis.get("signal", "NEUTRAL")
+    strength = technical_analysis.get("strength", 0)
+    triggered = signal == "BEARISH" and strength >= 50
+
+    return FactorResult(
+        factor=SellFactor.BEARISH_TECHNICALS.value if hasattr(SellFactor, 'BEARISH_TECHNICALS') else "BEARISH_TECHNICALS",
+        triggered=triggered,
+        value=strength,
+        threshold=50,
+        weight=1.0,
+        reasoning=f"Technical signal: {signal} (strength: {strength})"
+    )
+
+
+def check_vision_validated(vision_analysis: Dict[str, Any]) -> FactorResult:
+    """Check if vision analysis validates the setup."""
+    is_valid = vision_analysis.get("is_valid", False)
+    confidence = vision_analysis.get("confidence_score", 0)
+    patterns = vision_analysis.get("patterns_detected", [])
+    triggered = is_valid and confidence >= 50
+
+    return FactorResult(
+        factor=BuyFactor.VISION_VALIDATED.value if hasattr(BuyFactor, 'VISION_VALIDATED') else "VISION_VALIDATED",
+        triggered=triggered,
+        value=confidence,
+        threshold=50,
+        weight=1.0,
+        reasoning=f"Vision: {'valid' if is_valid else 'invalid'} (confidence: {confidence}, patterns: {len(patterns)})"
+    )
+
+
+def check_vision_bearish(vision_analysis: Dict[str, Any]) -> FactorResult:
+    """Check if vision analysis shows bearish patterns."""
+    is_valid = vision_analysis.get("is_valid", False)
+    confidence = vision_analysis.get("confidence_score", 0)
+    patterns = vision_analysis.get("patterns_detected", [])
+
+    # Check for bearish pattern keywords
+    bearish_patterns = ["head_and_shoulders", "double_top", "breakdown", "distribution"]
+    has_bearish = any(p.lower() in str(patterns).lower() for p in bearish_patterns)
+    triggered = is_valid and has_bearish and confidence >= 50
+
+    return FactorResult(
+        factor=SellFactor.VISION_BEARISH.value if hasattr(SellFactor, 'VISION_BEARISH') else "VISION_BEARISH",
+        triggered=triggered,
+        value=confidence,
+        threshold=50,
+        weight=1.0,
+        reasoning=f"Vision bearish: {'yes' if has_bearish else 'no'} (confidence: {confidence})"
+    )

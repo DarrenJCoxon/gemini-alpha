@@ -13,6 +13,19 @@ from .council import CouncilSession
 from .trade import Trade
 from .system_config import SystemConfig, SystemStatus
 from .portfolio import PortfolioSnapshot
+from .scaled_position import (
+    ScaledPosition,
+    ScaleOrder,
+    ScaleDirection,
+    ScaleStatus,
+    ScaleTriggerType,
+)
+from .onchain import (
+    ExchangeFlow,
+    WhaleActivity,
+    FundingRate,
+    StablecoinReserves,
+)
 
 __all__ = [
     # Enums
@@ -26,10 +39,18 @@ __all__ = [
     "generate_cuid",
     # Models
     "Asset",
+    "AssetTier",
     "Candle",
     "SentimentLog",
     "CouncilSession",
     "Trade",
     "SystemConfig",
     "PortfolioSnapshot",
+    "ScaledPosition",
+    "ScaleOrder",
+    # On-chain models
+    "ExchangeFlow",
+    "WhaleActivity",
+    "FundingRate",
+    "StablecoinReserves",
 ]

@@ -187,6 +187,70 @@ def pre_validate_decision(
     return "HOLD", ["Default to HOLD - not all BUY/SELL conditions met"]
 
 
+def pre_validate_decision_with_regime(
+    sentiment_analysis: Dict[str, Any],
+    technical_analysis: Dict[str, Any],
+    vision_analysis: Dict[str, Any],
+    regime_analysis: Optional[Dict[str, Any]] = None
+) -> Tuple[str, List[str]]:
+    """
+    Pre-validate decision considering market regime (Story 5.1).
+
+    In BEAR market, BUY thresholds are stricter.
+    In BULL market, SELL thresholds are stricter.
+    In CHOP market, both are stricter.
+
+    Args:
+        sentiment_analysis: Output from Sentiment Agent
+        technical_analysis: Output from Technical Agent
+        vision_analysis: Output from Vision Agent
+        regime_analysis: Market regime analysis from regime detector
+
+    Returns:
+        Tuple of (suggested_action: str, validation_reasons: List[str])
+    """
+    regime = "CHOP"
+    regime_reason = ""
+
+    if regime_analysis:
+        regime = regime_analysis.get("regime", "CHOP")
+        regime_reason = f" [Regime: {regime}]"
+
+    # Get base validation
+    action, reasons = pre_validate_decision(
+        sentiment_analysis, technical_analysis, vision_analysis
+    )
+
+    # Apply regime adjustments
+    if regime == "BEAR" and action == "BUY":
+        # In bear market, require higher conviction for buys
+        tech_strength = technical_analysis.get("strength", 0)
+        if tech_strength < 70:  # Require higher strength in bear market
+            action = "HOLD"
+            reasons.append(f"BLOCKED by BEAR regime: Tech strength {tech_strength} < 70{regime_reason}")
+        else:
+            reasons.append(f"CONFIRMED in BEAR regime: High conviction BUY{regime_reason}")
+
+    elif regime == "BULL" and action == "SELL":
+        # In bull market, require higher conviction for sells
+        fear_score = sentiment_analysis.get("fear_score", 50)
+        if fear_score < 85:  # Require extreme greed in bull market
+            action = "HOLD"
+            reasons.append(f"BLOCKED by BULL regime: Fear score {fear_score} < 85{regime_reason}")
+        else:
+            reasons.append(f"CONFIRMED in BULL regime: Extreme greed SELL{regime_reason}")
+
+    elif regime == "CHOP":
+        # In choppy market, be more conservative with both
+        if action in ["BUY", "SELL"]:
+            tech_strength = technical_analysis.get("strength", 0)
+            if tech_strength < 65:
+                action = "HOLD"
+                reasons.append(f"BLOCKED by CHOP regime: Low conviction ({tech_strength}){regime_reason}")
+
+    return action, reasons
+
+
 def calculate_decision_confidence(
     action: str,
     sentiment_analysis: Dict[str, Any],
