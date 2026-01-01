@@ -1,7 +1,7 @@
 import { User } from '@supabase/supabase-js';
-import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { LogoutButton } from '@/components/auth/logout-button';
+import { RealtimeStatusIndicator } from '@/components/layout/realtime-status';
 
 interface TopBarProps {
   user: User;
@@ -13,14 +13,7 @@ export function TopBar({ user }: TopBarProps) {
       {/* Left: Logo & Status */}
       <div className="flex items-center gap-4">
         <span className="font-bold text-lg text-zinc-100">ContrarianAI</span>
-        <Badge
-          variant="outline"
-          className="border-emerald-500/50 text-emerald-500"
-          aria-label="System Online"
-        >
-          <span className="w-2 h-2 rounded-full bg-emerald-500 mr-2 animate-pulse" />
-          Online
-        </Badge>
+        <RealtimeStatusIndicator />
       </div>
 
       {/* Center: Equity Ticker (placeholder) */}

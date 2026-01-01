@@ -4,12 +4,13 @@ import { useState, useEffect, useCallback } from 'react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
-import { RefreshCw } from 'lucide-react';
+import { RefreshCw, Wifi } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { CouncilSession, CouncilFeedFilters, DecisionType } from '@/types/council';
 import { fetchCouncilSessions } from '@/app/dashboard/council/actions';
 import { CouncilCard } from './council-card';
 import { useInfiniteScroll } from '@/hooks/use-infinite-scroll';
+import { useCouncilListener } from '@/hooks/use-council-listener';
 
 interface CouncilFeedProps {
   initialSessions?: CouncilSession[];
@@ -27,6 +28,42 @@ export function CouncilFeed({
   const [cursor, setCursor] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<DecisionType | null>(null);
+  const [newSessionIds, setNewSessionIds] = useState<Set<string>>(new Set());
+
+  // Realtime listener for new sessions
+  const handleNewSession = useCallback(
+    (session: CouncilSession) => {
+      // Add to top of list
+      setSessions((prev) => {
+        // Avoid duplicates
+        if (prev.some((s) => s.id === session.id)) return prev;
+
+        // Apply current filter
+        if (filter && session.finalDecision !== filter) return prev;
+
+        return [session, ...prev];
+      });
+
+      // Mark as new for animation
+      setNewSessionIds((prev) => new Set(prev).add(session.id));
+
+      // Remove "new" status after animation completes
+      setTimeout(() => {
+        setNewSessionIds((prev) => {
+          const updated = new Set(prev);
+          updated.delete(session.id);
+          return updated;
+        });
+      }, 1000);
+    },
+    [filter]
+  );
+
+  // Enable realtime listener
+  useCouncilListener({
+    onNewSession: handleNewSession,
+    showToasts: true,
+  });
 
   // Fetch sessions
   const loadSessions = useCallback(
@@ -99,9 +136,16 @@ export function CouncilFeed({
 
   return (
     <div className={cn('flex flex-col h-full', className)} data-testid="council-feed">
-      {/* Header */}
+      {/* Header with Realtime Status */}
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-lg font-semibold text-zinc-100">Council Chamber</h2>
+        <div className="flex items-center gap-2">
+          <h2 className="text-lg font-semibold text-zinc-100">Council Chamber</h2>
+          <Wifi
+            className="h-4 w-4 text-emerald-500 animate-pulse"
+            aria-label="Realtime connected"
+            data-testid="realtime-indicator"
+          />
+        </div>
         <div className="flex items-center gap-2">
           {/* Filter buttons */}
           <div className="flex gap-1" role="group" aria-label="Filter by decision">
@@ -167,7 +211,11 @@ export function CouncilFeed({
       <ScrollArea className="flex-1">
         <div className="space-y-4 pr-4">
           {sessions.map((session) => (
-            <CouncilCard key={session.id} session={session} />
+            <CouncilCard
+              key={session.id}
+              session={session}
+              isNew={newSessionIds.has(session.id)}
+            />
           ))}
 
           {/* Loading skeletons */}

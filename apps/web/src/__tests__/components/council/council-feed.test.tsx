@@ -24,6 +24,11 @@ jest.mock('@/hooks/use-infinite-scroll', () => ({
   })),
 }));
 
+// Mock the council listener hook
+jest.mock('@/hooks/use-council-listener', () => ({
+  useCouncilListener: jest.fn(),
+}));
+
 import { fetchCouncilSessions } from '@/app/dashboard/council/actions';
 
 const mockFetchCouncilSessions = fetchCouncilSessions as jest.MockedFunction<

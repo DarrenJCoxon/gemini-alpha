@@ -15,6 +15,18 @@ jest.mock('@/components/auth/logout-button', () => ({
   ),
 }));
 
+// Mock the RealtimeStatusIndicator
+jest.mock('@/components/layout/realtime-status', () => ({
+  RealtimeStatusIndicator: () => (
+    <div
+      data-testid="realtime-status-indicator"
+      aria-label="Realtime connection: Live"
+    >
+      Live
+    </div>
+  ),
+}));
+
 const mockUser: User = {
   id: '123',
   email: 'test@example.com',
@@ -31,17 +43,11 @@ describe('TopBar', () => {
     expect(screen.getByText('ContrarianAI')).toBeInTheDocument();
   });
 
-  it('should render the online status badge', () => {
+  it('should render the realtime status indicator', () => {
     render(<TopBar user={mockUser} />);
 
-    expect(screen.getByText('Online')).toBeInTheDocument();
-  });
-
-  it('should have accessible status badge with aria-label', () => {
-    render(<TopBar user={mockUser} />);
-
-    const badge = screen.getByLabelText('System Online');
-    expect(badge).toBeInTheDocument();
+    expect(screen.getByTestId('realtime-status-indicator')).toBeInTheDocument();
+    expect(screen.getByText('Live')).toBeInTheDocument();
   });
 
   it('should display user avatar with first letter of email', () => {

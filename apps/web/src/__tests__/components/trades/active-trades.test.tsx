@@ -29,6 +29,15 @@ jest.mock('date-fns', () => ({
   formatDistanceToNow: jest.fn(() => '2 hours ago'),
 }));
 
+// Mock the trade and asset price listener hooks
+jest.mock('@/hooks/use-trade-listener', () => ({
+  useTradeListener: jest.fn(),
+}));
+
+jest.mock('@/hooks/use-asset-price-listener', () => ({
+  useAssetPriceListener: jest.fn(),
+}));
+
 import { fetchOpenTrades } from '@/app/dashboard/trades/actions';
 
 const mockFetchOpenTrades = fetchOpenTrades as jest.MockedFunction<typeof fetchOpenTrades>;
