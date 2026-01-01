@@ -103,13 +103,21 @@ model VerificationToken {
 
 // Crypto asset definition
 model Asset {
-  id          String    @id @default(cuid())
-  symbol      String    @unique
-  name        String?
-  isActive    Boolean   @default(true)
-  lastPrice   Decimal?  @db.Decimal(18, 8)
-  lastUpdated DateTime?
-  createdAt   DateTime  @default(now())
+  id                   String    @id @default(cuid())
+  symbol               String    @unique
+  name                 String?
+  isActive             Boolean   @default(true)
+  lastPrice            Decimal?  @db.Decimal(18, 8)
+  lastUpdated          DateTime?
+  createdAt            DateTime  @default(now())
+
+  // Story 5.2: Asset Universe Reduction - Tier System
+  tier                 String?   @db.VarChar(20)  // TIER_1, TIER_2, TIER_3, EXCLUDED
+  maxAllocationPercent Decimal?  @db.Decimal(5, 2)
+  minVolume24h         Decimal?  @db.Decimal(18, 2)
+  minMarketCap         Decimal?  @db.Decimal(18, 2)
+  isMemeCoin           Boolean   @default(false)
+  exclusionReason      String?
 
   candles          Candle[]
   sentimentLogs    SentimentLog[]
