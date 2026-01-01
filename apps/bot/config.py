@@ -566,6 +566,34 @@ def get_gemini_pro_vision_model():
 
 
 @dataclass
+class MultiFactorConfig:
+    """
+    Multi-Factor Confirmation System configuration (Story 5.3).
+
+    Controls the minimum number of factors required for BUY/SELL signals:
+    - BUY: Requires 3+ of 6 factors (conservative)
+    - SELL: Requires 2+ of 5 factors (protective)
+    """
+
+    # Minimum factors required for BUY signal (default: 3 of 6)
+    min_factors_buy: int = field(
+        default_factory=lambda: int(os.getenv("MULTI_FACTOR_MIN_BUY", "3"))
+    )
+
+    # Minimum factors required for SELL signal (default: 2 of 5)
+    min_factors_sell: int = field(
+        default_factory=lambda: int(os.getenv("MULTI_FACTOR_MIN_SELL", "2"))
+    )
+
+    def validate(self) -> None:
+        """Validate multi-factor configuration values."""
+        if not (1 <= self.min_factors_buy <= 6):
+            raise ValueError(f"min_factors_buy must be 1-6, got {self.min_factors_buy}")
+        if not (1 <= self.min_factors_sell <= 5):
+            raise ValueError(f"min_factors_sell must be 1-5, got {self.min_factors_sell}")
+
+
+@dataclass
 class ScaleConfig:
     """
     Position scaling configuration (Story 5.4).
@@ -694,6 +722,7 @@ class Config:
     risk: RiskConfig = field(default_factory=RiskConfig)
     onchain: OnChainConfig = field(default_factory=OnChainConfig)
     scanner: ScannerConfig = field(default_factory=ScannerConfig)
+    multi_factor: MultiFactorConfig = field(default_factory=MultiFactorConfig)
     web_url: str = field(default_factory=lambda: os.getenv("WEB_URL", ""))
     debug: bool = field(
         default_factory=lambda: os.getenv("DEBUG", "").lower() == "true"
