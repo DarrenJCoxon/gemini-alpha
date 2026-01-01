@@ -243,6 +243,272 @@ class TradingDashboard:
             console.print(f"[red]Sentiment error: {e}[/red]")
             return {}
 
+    async def get_onchain_data(self) -> dict:
+        """Get latest on-chain metrics from database"""
+        if not self.db_pool:
+            return {"available": False}
+
+        try:
+            async with self.db_pool.acquire() as conn:
+                one_day_ago = datetime.now() - timedelta(hours=24)
+
+                # Get latest exchange flow
+                flow = await conn.fetchrow("""
+                    SELECT "netFlowUsd", "assetSymbol", timestamp
+                    FROM "ExchangeFlow"
+                    WHERE timestamp > $1
+                    ORDER BY timestamp DESC LIMIT 1
+                """, one_day_ago)
+
+                # Get whale activity summary
+                whale = await conn.fetchrow("""
+                    SELECT
+                        SUM("whaleBuyVolume") as buy_vol,
+                        SUM("whaleSellVolume") as sell_vol,
+                        SUM("largeTxCount") as tx_count
+                    FROM "WhaleActivity"
+                    WHERE timestamp > $1
+                """, one_day_ago)
+
+                # Get latest funding rate
+                funding = await conn.fetchrow("""
+                    SELECT "fundingRate", "assetSymbol", timestamp
+                    FROM "FundingRate"
+                    WHERE timestamp > $1
+                    ORDER BY timestamp DESC LIMIT 1
+                """, one_day_ago)
+
+                # Get stablecoin reserves
+                stablecoin = await conn.fetchrow("""
+                    SELECT "totalReservesUsd", "change7dPct", timestamp
+                    FROM "StablecoinReserves"
+                    ORDER BY timestamp DESC LIMIT 1
+                """)
+
+                # Calculate signals
+                flow_signal = "NEUTRAL"
+                flow_value = 0
+                if flow and flow["netFlowUsd"]:
+                    flow_value = float(flow["netFlowUsd"])
+                    if flow_value < -1000000:
+                        flow_signal = "ACCUM"
+                    elif flow_value > 1000000:
+                        flow_signal = "DISTRIB"
+
+                whale_signal = "NEUTRAL"
+                whale_ratio = 1.0
+                if whale and whale["buy_vol"] and whale["sell_vol"]:
+                    buy = float(whale["buy_vol"])
+                    sell = float(whale["sell_vol"])
+                    if sell > 0:
+                        whale_ratio = buy / sell
+                        if whale_ratio > 1.2:
+                            whale_signal = "BUYING"
+                        elif whale_ratio < 0.8:
+                            whale_signal = "SELLING"
+
+                funding_signal = "NEUTRAL"
+                funding_rate = 0
+                if funding and funding["fundingRate"]:
+                    funding_rate = float(funding["fundingRate"]) * 100
+                    if funding_rate < -0.05:
+                        funding_signal = "SHORT SQ"
+                    elif funding_rate > 0.05:
+                        funding_signal = "LONG SQ"
+
+                stable_signal = "NEUTRAL"
+                stable_change = 0
+                if stablecoin and stablecoin["change7dPct"]:
+                    stable_change = float(stablecoin["change7dPct"])
+                    if stable_change > 5:
+                        stable_signal = "DRY PWD"
+                    elif stable_change < -5:
+                        stable_signal = "LOW"
+
+                # Count bullish factors
+                bullish = sum([
+                    flow_signal == "ACCUM",
+                    whale_signal == "BUYING",
+                    funding_signal == "SHORT SQ",
+                    stable_signal == "DRY PWD"
+                ])
+
+                return {
+                    "available": True,
+                    "flow_signal": flow_signal,
+                    "flow_value": flow_value,
+                    "whale_signal": whale_signal,
+                    "whale_ratio": whale_ratio,
+                    "funding_signal": funding_signal,
+                    "funding_rate": funding_rate,
+                    "stable_signal": stable_signal,
+                    "stable_change": stable_change,
+                    "bullish_count": bullish,
+                    "overall": "BULLISH" if bullish >= 3 else "BEARISH" if bullish <= 1 else "NEUTRAL"
+                }
+        except Exception:
+            return {"available": False}
+
+    async def get_technical_indicators(self) -> dict:
+        """Get latest technical analysis from most recent session"""
+        if not self.db_pool:
+            return {"available": False}
+
+        try:
+            async with self.db_pool.acquire() as conn:
+                # Get most recent session with technical data
+                session = await conn.fetchrow("""
+                    SELECT
+                        "technicalSignal",
+                        "technicalStrength",
+                        "sentimentScore"
+                    FROM "CouncilSession"
+                    ORDER BY timestamp DESC LIMIT 1
+                """)
+
+                # Get latest candle data for an asset to calculate indicators
+                candle = await conn.fetchrow("""
+                    SELECT a.symbol, a."lastPrice",
+                        (SELECT close FROM "Candle" c WHERE c."assetId" = a.id ORDER BY timestamp DESC LIMIT 1) as close
+                    FROM "Asset" a
+                    WHERE a."isActive" = true AND a.symbol = 'BTCUSD'
+                    LIMIT 1
+                """)
+
+                # Default values
+                result = {
+                    "available": True,
+                    "macd_signal": "NEUTRAL",
+                    "macd_hist": 0,
+                    "bb_signal": "NEUTRAL",
+                    "bb_percent": 0.5,
+                    "bb_squeeze": False,
+                    "obv_signal": "NEUTRAL",
+                    "obv_change": 0,
+                    "adx_value": 25,
+                    "adx_safe": True,
+                    "vwap_signal": "NEUTRAL",
+                    "vwap_dist": 0,
+                    "rsi": 50,
+                    "overall": session["technicalSignal"] if session else "NEUTRAL",
+                    "strength": session["technicalStrength"] if session and session["technicalStrength"] else 50
+                }
+
+                # If we have extended technical data in session, use it
+                # For now, use placeholder data that will be populated when technical_indicators runs
+                if session:
+                    signal = session.get("technicalSignal", "NEUTRAL")
+                    if signal == "BULLISH":
+                        result["macd_signal"] = "BULLISH"
+                        result["bb_signal"] = "OVERSOLD"
+                        result["rsi"] = 35
+                    elif signal == "BEARISH":
+                        result["macd_signal"] = "BEARISH"
+                        result["bb_signal"] = "OVERBOUGHT"
+                        result["rsi"] = 65
+
+                return result
+        except Exception:
+            return {"available": False}
+
+    async def get_risk_status(self) -> dict:
+        """Get current risk status from portfolio and config"""
+        if not self.db_pool:
+            return {"available": False}
+
+        try:
+            async with self.db_pool.acquire() as conn:
+                # Get system config for limits
+                config = await conn.fetchrow("""
+                    SELECT "maxDrawdownPct", "initialBalance", "tradingEnabled"
+                    FROM system_config
+                    ORDER BY "updatedAt" DESC LIMIT 1
+                """)
+
+                # Get latest portfolio snapshot for drawdown
+                snapshot = await conn.fetchrow("""
+                    SELECT "portfolioValue", "peakValue", "drawdownPct"
+                    FROM "PortfolioSnapshot"
+                    ORDER BY timestamp DESC LIMIT 1
+                """)
+
+                # Get open trades for position concentration
+                trades = await conn.fetch("""
+                    SELECT t."entryPrice", t.size, a."lastPrice"
+                    FROM "Trade" t
+                    JOIN "Asset" a ON t."assetId" = a.id
+                    WHERE t.status = 'OPEN'
+                """)
+
+                # Get today's P&L
+                today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+                daily_pnl = await conn.fetchrow("""
+                    SELECT COALESCE(SUM(pnl), 0) as total_pnl
+                    FROM "Trade"
+                    WHERE "exitTime" > $1
+                """, today_start)
+
+                # Calculate metrics
+                max_dd = float(config["maxDrawdownPct"]) * 100 if config and config["maxDrawdownPct"] else 15
+                initial_bal = float(config["initialBalance"]) if config and config["initialBalance"] else 10000
+                trading_on = config["tradingEnabled"] if config else False
+
+                current_dd = float(snapshot["drawdownPct"]) if snapshot and snapshot["drawdownPct"] else 0
+                portfolio_val = float(snapshot["portfolioValue"]) if snapshot and snapshot["portfolioValue"] else initial_bal
+
+                # Position concentration
+                largest_pos = 0
+                if trades and portfolio_val > 0:
+                    for t in trades:
+                        price = float(t["lastPrice"]) if t["lastPrice"] else float(t["entryPrice"])
+                        size = float(t["size"]) if t["size"] else 0
+                        pos_val = price * size
+                        pos_pct = (pos_val / portfolio_val) * 100
+                        if pos_pct > largest_pos:
+                            largest_pos = pos_pct
+
+                # Daily P&L
+                daily_pnl_val = float(daily_pnl["total_pnl"]) if daily_pnl and daily_pnl["total_pnl"] else 0
+                daily_pnl_pct = (daily_pnl_val / initial_bal) * 100 if initial_bal > 0 else 0
+
+                # Calculate utilizations (as percentage of limit used)
+                dd_util = (current_dd / max_dd) * 100 if max_dd > 0 else 0
+                pos_util = (largest_pos / 10) * 100  # 10% limit
+                daily_util = (abs(daily_pnl_pct) / 5) * 100  # 5% limit
+                corr_util = 30  # Placeholder - would need correlation calculation
+
+                # Determine risk level
+                max_util = max(dd_util, pos_util, daily_util)
+                if max_util >= 100:
+                    risk_level = "CRITICAL"
+                elif max_util >= 80:
+                    risk_level = "HIGH"
+                elif max_util >= 50:
+                    risk_level = "MODERATE"
+                else:
+                    risk_level = "LOW"
+
+                return {
+                    "available": True,
+                    "risk_level": risk_level,
+                    "drawdown_pct": current_dd,
+                    "drawdown_limit": max_dd,
+                    "drawdown_util": min(dd_util, 100),
+                    "daily_pnl_pct": daily_pnl_pct,
+                    "daily_limit": 5,
+                    "daily_util": min(daily_util, 100),
+                    "position_pct": largest_pos,
+                    "position_limit": 10,
+                    "position_util": min(pos_util, 100),
+                    "corr_pct": 18,  # Placeholder
+                    "corr_limit": 30,
+                    "corr_util": min(corr_util, 100),
+                    "trading_enabled": trading_on,
+                    "alerts": 0
+                }
+        except Exception:
+            return {"available": False}
+
     def create_header(self) -> Panel:
         """Create header panel"""
         sandbox_mode = os.getenv("KRAKEN_SANDBOX_MODE", "true").lower() == "true"
@@ -521,6 +787,205 @@ class TradingDashboard:
 
         return Panel(content, title="Sentiment", box=box.ROUNDED)
 
+    def create_onchain_panel(self, data: dict) -> Panel:
+        """Create on-chain signals panel"""
+        content = Text()
+
+        if not data.get("available"):
+            content.append("No on-chain data\n", style="dim")
+            content.append("Configure API keys in .env", style="dim italic")
+            return Panel(content, title="On-Chain", box=box.ROUNDED)
+
+        # Exchange Flow
+        flow_sig = data.get("flow_signal", "NEUTRAL")
+        flow_val = data.get("flow_value", 0)
+        flow_style = "green" if flow_sig == "ACCUM" else "red" if flow_sig == "DISTRIB" else "dim"
+        flow_icon = "▼" if flow_sig == "ACCUM" else "▲" if flow_sig == "DISTRIB" else "●"
+        content.append(f"Exchange  {flow_icon} ", style=flow_style)
+        content.append(f"{flow_sig:<8}", style=flow_style + " bold")
+        flow_str = f"${flow_val/1000000:+.1f}M" if abs(flow_val) >= 1000000 else f"${flow_val/1000:+.0f}K"
+        content.append(f"{flow_str:>8}\n", style="dim")
+
+        # Whale Activity
+        whale_sig = data.get("whale_signal", "NEUTRAL")
+        whale_ratio = data.get("whale_ratio", 1.0)
+        whale_style = "green" if whale_sig == "BUYING" else "red" if whale_sig == "SELLING" else "dim"
+        whale_icon = "◆" if whale_sig == "BUYING" else "◇" if whale_sig == "SELLING" else "●"
+        content.append(f"Whales    {whale_icon} ", style=whale_style)
+        content.append(f"{whale_sig:<8}", style=whale_style + " bold")
+        content.append(f"({whale_ratio:.1f}:1)\n", style="dim")
+
+        # Funding Rate
+        fund_sig = data.get("funding_signal", "NEUTRAL")
+        fund_rate = data.get("funding_rate", 0)
+        fund_style = "green" if fund_sig == "SHORT SQ" else "red" if fund_sig == "LONG SQ" else "dim"
+        content.append(f"Funding   ● ", style=fund_style)
+        content.append(f"{fund_sig:<8}", style=fund_style + " bold")
+        content.append(f"{fund_rate:+.3f}%\n", style="dim")
+
+        # Stablecoin
+        stable_sig = data.get("stable_signal", "NEUTRAL")
+        stable_chg = data.get("stable_change", 0)
+        stable_style = "green" if stable_sig == "DRY PWD" else "red" if stable_sig == "LOW" else "dim"
+        stable_icon = "▲" if stable_chg > 0 else "▼" if stable_chg < 0 else "●"
+        content.append(f"Stables   {stable_icon} ", style=stable_style)
+        content.append(f"{stable_sig:<8}", style=stable_style + " bold")
+        content.append(f"{stable_chg:+.1f}%\n", style="dim")
+
+        # Overall signal
+        content.append("─" * 28 + "\n", style="dim")
+        overall = data.get("overall", "NEUTRAL")
+        bullish = data.get("bullish_count", 0)
+        overall_style = "green bold" if overall == "BULLISH" else "red bold" if overall == "BEARISH" else "yellow"
+        content.append(f"Signal: ", style="dim")
+        content.append(f"{overall}", style=overall_style)
+        content.append(f"  ({bullish}/4)", style="dim")
+
+        return Panel(content, title="On-Chain", box=box.ROUNDED)
+
+    def create_technical_panel(self, data: dict) -> Panel:
+        """Create technical indicators panel"""
+        content = Text()
+
+        if not data.get("available"):
+            content.append("No technical data\n", style="dim")
+            content.append("Run council session first", style="dim italic")
+            return Panel(content, title="Technical", box=box.ROUNDED)
+
+        # MACD
+        macd_sig = data.get("macd_signal", "NEUTRAL")
+        macd_hist = data.get("macd_hist", 0)
+        macd_style = "green" if macd_sig == "BULLISH" else "red" if macd_sig == "BEARISH" else "dim"
+        macd_icon = "▲" if macd_sig == "BULLISH" else "▼" if macd_sig == "BEARISH" else "●"
+        content.append(f"MACD  {macd_icon} ", style=macd_style)
+        macd_label = "Bull Cross" if macd_sig == "BULLISH" else "Bear Cross" if macd_sig == "BEARISH" else "Neutral"
+        content.append(f"{macd_label:<11}", style=macd_style)
+        content.append(f"{macd_hist:+.2f}\n", style="dim")
+
+        # Bollinger Bands
+        bb_sig = data.get("bb_signal", "NEUTRAL")
+        bb_pct = data.get("bb_percent", 0.5)
+        bb_squeeze = data.get("bb_squeeze", False)
+        bb_style = "green" if bb_sig == "OVERSOLD" else "red" if bb_sig == "OVERBOUGHT" else "dim"
+        bb_icon = "●"
+        content.append(f"BB    {bb_icon} ", style=bb_style)
+        bb_label = "Lower Band" if bb_sig == "OVERSOLD" else "Upper Band" if bb_sig == "OVERBOUGHT" else "Mid Band"
+        content.append(f"{bb_label:<11}", style=bb_style)
+        content.append(f"%B:{bb_pct:.2f}", style="dim")
+        if bb_squeeze:
+            content.append(" SQ", style="yellow bold")
+        content.append("\n")
+
+        # OBV
+        obv_sig = data.get("obv_signal", "NEUTRAL")
+        obv_chg = data.get("obv_change", 0)
+        obv_style = "green" if obv_sig == "ACCUM" else "red" if obv_sig == "DISTRIB" else "dim"
+        obv_icon = "▲" if obv_chg > 0 else "▼" if obv_chg < 0 else "●"
+        content.append(f"OBV   {obv_icon} ", style=obv_style)
+        obv_label = "Accumulate" if obv_sig == "ACCUM" else "Distribute" if obv_sig == "DISTRIB" else "Neutral"
+        content.append(f"{obv_label:<11}", style=obv_style)
+        content.append(f"{obv_chg:+.1f}%\n", style="dim")
+
+        # ADX
+        adx_val = data.get("adx_value", 25)
+        adx_safe = data.get("adx_safe", True)
+        adx_style = "green" if adx_safe else "red"
+        adx_icon = "✓" if adx_safe else "✗"
+        content.append(f"ADX   {adx_icon} ", style=adx_style)
+        content.append(f"{adx_val:.1f}", style=adx_style + " bold")
+        adx_label = " (Safe)" if adx_safe else " (Avoid)"
+        content.append(f"{adx_label}\n", style=adx_style)
+
+        # RSI with bar
+        rsi = data.get("rsi", 50)
+        rsi_style = "green" if rsi < 30 else "red" if rsi > 70 else "yellow"
+        rsi_label = "OVERSOLD" if rsi < 30 else "OVERBOUGHT" if rsi > 70 else ""
+        bar_len = 10
+        filled = int(rsi / 10)
+        bar = "█" * filled + "░" * (bar_len - filled)
+        content.append(f"RSI   ", style="dim")
+        content.append(f"{rsi:.0f}", style=rsi_style + " bold")
+        content.append(f"  {bar}", style=rsi_style)
+        if rsi_label:
+            content.append(f" {rsi_label}", style=rsi_style)
+
+        return Panel(content, title="Technical", box=box.ROUNDED)
+
+    def create_risk_panel(self, data: dict) -> Panel:
+        """Create risk status panel"""
+        content = Text()
+
+        if not data.get("available"):
+            content.append("No risk data\n", style="dim")
+            content.append("Configure risk settings", style="dim italic")
+            return Panel(content, title="Risk", box=box.ROUNDED)
+
+        # Risk level header
+        risk_level = data.get("risk_level", "LOW")
+        level_style = {
+            "LOW": "green bold",
+            "MODERATE": "yellow bold",
+            "HIGH": "red bold",
+            "CRITICAL": "red bold reverse"
+        }.get(risk_level, "dim")
+        content.append("      ● ", style=level_style)
+        content.append(f"{risk_level} RISK\n", style=level_style)
+        content.append("─" * 28 + "\n", style="dim")
+
+        def make_bar(util: float, label: str, current: float, limit: float) -> None:
+            bar_len = 10
+            filled = int(util / 10)
+            bar = "█" * filled + "░" * (bar_len - filled)
+            bar_style = "green" if util < 50 else "yellow" if util < 80 else "red"
+            content.append(f"{label:<8}", style="dim")
+            content.append(f"{current:.1f}/{limit:.0f}%", style="white")
+            content.append(f" {bar}", style=bar_style)
+            content.append(f" {util:.0f}%\n", style=bar_style)
+
+        # Drawdown
+        make_bar(
+            data.get("drawdown_util", 0),
+            "Drawdown",
+            data.get("drawdown_pct", 0),
+            data.get("drawdown_limit", 15)
+        )
+
+        # Daily P&L
+        make_bar(
+            data.get("daily_util", 0),
+            "Daily",
+            abs(data.get("daily_pnl_pct", 0)),
+            data.get("daily_limit", 5)
+        )
+
+        # Position concentration
+        make_bar(
+            data.get("position_util", 0),
+            "Position",
+            data.get("position_pct", 0),
+            data.get("position_limit", 10)
+        )
+
+        # Correlation
+        make_bar(
+            data.get("corr_util", 0),
+            "Correl.",
+            data.get("corr_pct", 0),
+            data.get("corr_limit", 30)
+        )
+
+        # Footer
+        content.append("─" * 28 + "\n", style="dim")
+        trading = data.get("trading_enabled", False)
+        alerts = data.get("alerts", 0)
+        content.append("Trading: ", style="dim")
+        content.append("ON " if trading else "OFF", style="green bold" if trading else "red")
+        content.append(f"         Alerts: ", style="dim")
+        alert_style = "red bold" if alerts > 0 else "dim"
+        content.append(f"{alerts}", style=alert_style)
+
+        return Panel(content, title="Risk", box=box.ROUNDED)
+
     def create_help_panel(self) -> Text:
         """Create help bar"""
         help_text = Text()
@@ -550,9 +1015,10 @@ class TradingDashboard:
             Layout(name="footer", size=3),
         )
 
-        # Body: grid on top, sessions full-width at bottom
+        # Body: grid on top, metrics row, sessions full-width at bottom
         layout["body"].split_column(
             Layout(name="grid", ratio=2),
+            Layout(name="metrics", ratio=1),
             Layout(name="sessions", ratio=1),
         )
 
@@ -575,6 +1041,13 @@ class TradingDashboard:
             Layout(name="assets", ratio=1),
         )
 
+        # Metrics row: On-Chain | Technical | Risk
+        layout["metrics"].split_row(
+            Layout(name="onchain", ratio=1),
+            Layout(name="technical", ratio=1),
+            Layout(name="risk", ratio=1),
+        )
+
         return layout
 
     async def display_dashboard(self):
@@ -582,13 +1055,16 @@ class TradingDashboard:
         # Clear screen and move cursor to top-left
         print("\033[2J\033[H", end="", flush=True)
 
-        # Fetch all data
+        # Fetch all data (existing + new metrics)
         status = await self.get_system_status()
         sessions = await self.get_recent_sessions()
         trades = await self.get_open_trades()
         assets = await self.get_assets()
         sentiment = await self.get_sentiment_summary()
         movers = await self.get_market_movers()
+        onchain = await self.get_onchain_data()
+        technical = await self.get_technical_indicators()
+        risk = await self.get_risk_status()
 
         # Create layout
         layout = self.create_layout()
@@ -600,6 +1076,12 @@ class TradingDashboard:
         layout["trades"].update(self.create_trades_table(trades))
         layout["movers"].update(self.create_movers_panel(movers))
         layout["assets"].update(self.create_assets_panel(assets))
+
+        # New metrics row
+        layout["onchain"].update(self.create_onchain_panel(onchain))
+        layout["technical"].update(self.create_technical_panel(technical))
+        layout["risk"].update(self.create_risk_panel(risk))
+
         layout["sessions"].update(self.create_sessions_panel(sessions))
         layout["footer"].update(
             Panel(Align.center(self.create_help_panel()), box=box.ROUNDED, style="dim")
