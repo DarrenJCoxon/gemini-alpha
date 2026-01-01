@@ -12,12 +12,22 @@ from .sentiment import SentimentLog
 from .council import CouncilSession
 from .trade import Trade
 from .system_config import SystemConfig, SystemStatus
+from .scaled_position import (
+    ScaledPosition,
+    ScaleOrder,
+    ScaleDirection,
+    ScaleStatus,
+    ScaleTriggerType,
+)
 
 __all__ = [
     # Enums
     "Decision",
     "TradeStatus",
     "SystemStatus",
+    "ScaleDirection",
+    "ScaleStatus",
+    "ScaleTriggerType",
     # Utility functions
     "generate_cuid",
     # Models
@@ -27,4 +37,6 @@ __all__ = [
     "CouncilSession",
     "Trade",
     "SystemConfig",
+    "ScaledPosition",
+    "ScaleOrder",
 ]

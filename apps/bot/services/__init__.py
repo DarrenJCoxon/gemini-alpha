@@ -7,6 +7,7 @@ This module contains service classes for interacting with:
 - Risk Engine (Story 3.2) - ATR-based stop loss calculation
 - LunarCrush API (Story 1.4) - Sentiment data
 - Bluesky/Telegram (Story 1.4) - Social media scraping
+- Scale In/Out (Story 5.4) - Position scaling
 - Other external services
 """
 
@@ -29,6 +30,32 @@ from .execution import (
     get_open_position,
     get_all_open_positions,
     close_position,
+    execute_buy_scaled,
+    setup_scaled_exit,
+)
+from .scale_in_manager import (
+    create_scaled_entry,
+    execute_scale_order,
+    check_pending_scale_orders,
+    expire_old_scale_orders,
+    cancel_pending_scales,
+    get_active_scaled_positions,
+)
+from .scale_out_manager import (
+    create_scaled_exit,
+    check_scale_out_triggers,
+    execute_partial_exit,
+    get_scale_out_position_for_trade,
+    cancel_scale_out_plan,
+    get_pending_trailing_stop_orders,
+)
+from .average_price import (
+    calculate_average_entry,
+    calculate_realized_pnl,
+    calculate_unrealized_pnl,
+    calculate_total_pnl,
+    AveragePosition,
+    RealizedPnL,
 )
 from .exceptions import (
     ExecutionError,
@@ -127,6 +154,29 @@ __all__ = [
     "get_open_position",
     "get_all_open_positions",
     "close_position",
+    "execute_buy_scaled",
+    "setup_scaled_exit",
+    # Scale In Manager (Story 5.4)
+    "create_scaled_entry",
+    "execute_scale_order",
+    "check_pending_scale_orders",
+    "expire_old_scale_orders",
+    "cancel_pending_scales",
+    "get_active_scaled_positions",
+    # Scale Out Manager (Story 5.4)
+    "create_scaled_exit",
+    "check_scale_out_triggers",
+    "execute_partial_exit",
+    "get_scale_out_position_for_trade",
+    "cancel_scale_out_plan",
+    "get_pending_trailing_stop_orders",
+    # Average Price Utilities (Story 5.4)
+    "calculate_average_entry",
+    "calculate_realized_pnl",
+    "calculate_unrealized_pnl",
+    "calculate_total_pnl",
+    "AveragePosition",
+    "RealizedPnL",
     # Execution exceptions (Story 3.1)
     "ExecutionError",
     "InsufficientFundsError",

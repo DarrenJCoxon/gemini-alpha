@@ -111,10 +111,11 @@ model Asset {
   lastUpdated DateTime?
   createdAt   DateTime  @default(now())
 
-  candles         Candle[]
-  sentimentLogs   SentimentLog[]
-  councilSessions CouncilSession[]
-  trades          Trade[]
+  candles          Candle[]
+  sentimentLogs    SentimentLog[]
+  councilSessions  CouncilSession[]
+  trades           Trade[]
+  scaledPositions  ScaledPosition[]
 }
 
 // OHLCV candle data
@@ -216,4 +217,58 @@ model SystemConfig {
   updatedAt         DateTime     @updatedAt
 
   @@map("system_config")
+}
+
+// =============================================================================
+// SCALED POSITION MODELS (Story 5.4: Scale In/Out Position Management)
+// =============================================================================
+
+// Parent position tracking overall scaling strategy
+model ScaledPosition {
+  id                String    @id @default(cuid())
+  assetId           String
+  direction         String    @db.VarChar(20)  // SCALE_IN or SCALE_OUT
+  isActive          Boolean   @default(true)
+  targetSize        Decimal   @db.Decimal(18, 8)
+  filledSize        Decimal   @default(0) @db.Decimal(18, 8)
+  remainingSize     Decimal   @db.Decimal(18, 8)
+  averagePrice      Decimal?  @db.Decimal(18, 8)
+  totalCost         Decimal   @default(0) @db.Decimal(18, 2)
+  numScales         Int       @default(3)
+  scalesExecuted    Int       @default(0)
+  createdAt         DateTime  @default(now())
+  completedAt       DateTime?
+  councilSessionId  String?
+  parentTradeId     String?
+
+  asset         Asset         @relation(fields: [assetId], references: [id])
+  scaleOrders   ScaleOrder[]
+
+  @@index([assetId])
+  @@index([isActive])
+  @@index([parentTradeId])
+}
+
+// Individual scale order within a scaled position
+model ScaleOrder {
+  id                  String    @id @default(cuid())
+  scaledPositionId    String
+  scaleNumber         Int
+  status              String    @default("PENDING") @db.VarChar(20)
+  triggerType         String    @db.VarChar(50)  // IMMEDIATE, PRICE_DROP, CAPITULATION, PROFIT_TARGET, TRAILING_STOP
+  triggerPrice        Decimal?  @db.Decimal(18, 8)
+  triggerPct          Decimal?  @db.Decimal(5, 2)
+  targetSize          Decimal   @db.Decimal(18, 8)
+  executedSize        Decimal?  @db.Decimal(18, 8)
+  executedPrice       Decimal?  @db.Decimal(18, 8)
+  tradeId             String?
+  createdAt           DateTime  @default(now())
+  triggeredAt         DateTime?
+  executedAt          DateTime?
+
+  scaledPosition      ScaledPosition @relation(fields: [scaledPositionId], references: [id])
+
+  @@index([scaledPositionId])
+  @@index([status])
+  @@index([tradeId])
 }

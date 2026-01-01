@@ -2,6 +2,7 @@
 Position Manager Service for managing open positions.
 
 Story 3.3: Position Manager (Trailing Stops & Exits)
+Story 5.4: Scale In/Out Position Management Integration
 
 This module provides position lifecycle management:
 - Monitor open positions every 15 minutes
@@ -10,12 +11,16 @@ This module provides position lifecycle management:
 - Trail stops upward as price rises
 - Close positions on Council SELL signals
 - Calculate and log P&L on position close
+- Check and execute scale-in triggers (Story 5.4)
+- Check and execute scale-out profit targets (Story 5.4)
 
 Position Check Priority Order (CRITICAL):
 1. Stop Loss - Protect capital first
 2. Council SELL - Take profits on reversal signals
-3. Breakeven Trigger - Lock in entry price
-4. Trailing Stop - Maximize profits
+3. Scale-out Profit Targets - Lock in profits (Story 5.4)
+4. Breakeven Trigger - Lock in entry price
+5. Trailing Stop - Maximize profits
+6. Scale-in Triggers - Build position on dips (Story 5.4)
 
 Reference: docs/core/prd.md Section 2.1 FR10
 """
@@ -34,6 +39,17 @@ from models import Trade, TradeStatus, Asset
 from services.kraken import get_kraken_client, KrakenClient
 from services.risk import calculate_atr
 from services.execution import execute_sell
+from services.scale_in_manager import (
+    check_pending_scale_orders,
+    execute_scale_order,
+    cancel_pending_scales,
+)
+from services.scale_out_manager import (
+    check_scale_out_triggers,
+    execute_partial_exit,
+    get_scale_out_position_for_trade,
+    cancel_scale_out_plan,
+)
 
 # Configure logging
 logger = logging.getLogger("position_manager")
@@ -518,6 +534,21 @@ async def close_position(
         else:
             logger.info(f"Position {trade.id} CLOSED - {reason.value}")
 
+        # Story 5.4: Cancel any pending scale orders for this position
+        try:
+            # Cancel pending scale-out orders
+            scale_out_position = await get_scale_out_position_for_trade(trade.id, session=s)
+            if scale_out_position:
+                cancelled = await cancel_scale_out_plan(
+                    scale_out_position.id,
+                    reason=f"position_closed_{reason.value}",
+                    session=s
+                )
+                if cancelled > 0:
+                    logger.info(f"Cancelled {cancelled} pending scale-out orders")
+        except Exception as e:
+            logger.warning(f"Error cancelling scale orders: {e}")
+
         return True, None
 
     if session:
@@ -602,6 +633,8 @@ async def check_open_positions(
         "breakevens_triggered": 0,
         "trailing_updates": 0,
         "council_closes": 0,
+        "scale_ins_triggered": 0,  # Story 5.4
+        "scale_outs_triggered": 0,  # Story 5.4
         "errors": 0,
     }
 
@@ -676,16 +709,70 @@ async def check_open_positions(
                         summary["council_closes"] += 1
                     continue  # Position closed, move to next
 
-                # PRIORITY 3: Check breakeven trigger
+                # PRIORITY 3: Check scale-out profit targets (Story 5.4)
+                try:
+                    scale_outs = await check_scale_out_triggers(symbol, current_price, session=s)
+                    for pos_id, scale_num, parent_trade_id in scale_outs:
+                        if parent_trade_id == trade.id:
+                            error = await execute_partial_exit(
+                                trade, pos_id, scale_num, symbol, current_price, session=s
+                            )
+                            if not error:
+                                summary["scale_outs_triggered"] += 1
+                                logger.info(
+                                    f"Scale-out {scale_num} executed for {symbol} "
+                                    f"at ${current_price:.4f}"
+                                )
+                except Exception as e:
+                    logger.error(f"Error checking scale-outs for {symbol}: {e}")
+
+                # PRIORITY 4: Check breakeven trigger
                 if await check_breakeven_trigger(trade, current_price, atr, session=s):
                     summary["breakevens_triggered"] += 1
 
-                # PRIORITY 4: Update trailing stop
+                # PRIORITY 5: Update trailing stop
                 if await update_trailing_stop(trade, current_price, atr, session=s):
                     summary["trailing_updates"] += 1
 
             except Exception as e:
                 logger.error(f"Error processing trade {trade.id}: {e}")
+                summary["errors"] += 1
+
+        # PRIORITY 6: Check scale-in opportunities for all symbols (Story 5.4)
+        # This checks for pending scale orders that may be triggered by price drops
+        unique_symbols = list(set(symbols))
+        for symbol in unique_symbols:
+            current_price = prices.get(symbol)
+            if current_price is None:
+                continue
+
+            try:
+                # Check for pending scale-in orders
+                scale_in_orders = await check_pending_scale_orders(
+                    symbol, current_price, session=s
+                )
+
+                for pos_id, scale_num in scale_in_orders:
+                    # Fetch candles for this execution
+                    candles = await fetch_recent_candles(symbol, limit=20)
+                    if not candles:
+                        logger.warning(f"No candles available for scale-in on {symbol}")
+                        continue
+
+                    error = await execute_scale_order(
+                        pos_id, scale_num, symbol, candles, session=s
+                    )
+                    if not error:
+                        summary["scale_ins_triggered"] += 1
+                        logger.info(
+                            f"Scale-in {scale_num} executed for {symbol} "
+                            f"at ${current_price:.4f}"
+                        )
+                    else:
+                        logger.error(f"Scale-in failed for {symbol}: {error}")
+                        summary["errors"] += 1
+            except Exception as e:
+                logger.error(f"Error checking scale-ins for {symbol}: {e}")
                 summary["errors"] += 1
 
         return summary
@@ -704,7 +791,9 @@ async def check_open_positions(
             f"{result['stops_hit']} stops hit, "
             f"{result['breakevens_triggered']} breakevens, "
             f"{result['trailing_updates']} trailing updates, "
-            f"{result['council_closes']} council sells"
+            f"{result['council_closes']} council sells, "
+            f"{result['scale_ins_triggered']} scale-ins, "
+            f"{result['scale_outs_triggered']} scale-outs"
         )
         logger.info("=" * 40)
 

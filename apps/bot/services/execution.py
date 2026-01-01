@@ -583,3 +583,148 @@ async def get_all_open_positions(
         session_maker = get_session_maker()
         async with session_maker() as new_session:
             return await _get(new_session)
+
+
+# =============================================================================
+# Scaled Execution Functions (Story 5.4)
+# =============================================================================
+
+async def execute_buy_scaled(
+    symbol: str,
+    amount_usd: float,
+    candles: List[dict],
+    asset_id: str,
+    council_session_id: Optional[str] = None,
+    session: Optional[AsyncSession] = None,
+) -> Tuple[bool, Optional[str], Any]:
+    """
+    Execute a scaled entry (multiple partial buys).
+
+    Story 5.4: Scale In/Out Position Management
+
+    This function creates a scaled entry position that:
+    1. Executes 33% immediately
+    2. Sets up trigger for 33% at -5% drop
+    3. Sets up trigger for 33% at -10% drop (capitulation)
+
+    Args:
+        symbol: Trading pair in database format (e.g., "SOLUSD")
+        amount_usd: Total amount in USD for full position
+        candles: Recent OHLCV candle data for ATR calculation
+        asset_id: Database asset ID
+        council_session_id: Optional council session ID for audit trail
+        session: Optional database session
+
+    Returns:
+        Tuple of (success, error_message, scaled_position)
+        If successful, returns the ScaledPosition object
+
+    Example:
+        >>> candles = await fetch_candles(symbol, limit=50)
+        >>> success, error, scaled_pos = await execute_buy_scaled(
+        ...     symbol="SOLUSD",
+        ...     amount_usd=300.0,  # Will split into 3 x $100 entries
+        ...     candles=candles,
+        ...     asset_id=asset.id,
+        ... )
+        >>> if success:
+        ...     print(f"Scaled position {scaled_pos.id} created, first entry executed")
+    """
+    # Import here to avoid circular import
+    from services.scale_in_manager import create_scaled_entry
+
+    if not candles:
+        return False, "No candle data provided for scaled entry", None
+
+    current_price = candles[-1]['close']
+
+    logger.info(
+        f"Creating scaled entry for {symbol}: "
+        f"${amount_usd:.2f} total at ~${current_price:.4f}"
+    )
+
+    try:
+        scaled_position, error = await create_scaled_entry(
+            asset_id=asset_id,
+            symbol=symbol,
+            total_amount_usd=amount_usd,
+            first_entry_price=current_price,
+            candles=candles,
+            council_session_id=council_session_id,
+            session=session,
+        )
+
+        if error:
+            logger.error(f"Scaled entry failed: {error}")
+            return False, error, scaled_position
+
+        logger.info(
+            f"Scaled position {scaled_position.id} created: "
+            f"first scale executed, {scaled_position.num_scales - 1} pending"
+        )
+
+        return True, None, scaled_position
+
+    except Exception as e:
+        logger.error(f"Error creating scaled entry: {e}")
+        return False, str(e), None
+
+
+async def setup_scaled_exit(
+    trade: Trade,
+    average_entry_price: Optional[float] = None,
+    session: Optional[AsyncSession] = None,
+) -> Tuple[bool, Optional[str], Any]:
+    """
+    Set up a scaled exit plan for an existing position.
+
+    Story 5.4: Scale In/Out Position Management
+
+    This function creates a scaled exit plan that:
+    1. Sells 33% at +10% profit
+    2. Sells 33% at +20% profit
+    3. Sells final 33% via trailing stop
+
+    Args:
+        trade: The Trade object to create exit plan for
+        average_entry_price: Override average entry (uses trade.entry_price if not set)
+        session: Optional database session
+
+    Returns:
+        Tuple of (success, error_message, scaled_position)
+
+    Example:
+        >>> success, error, exit_plan = await setup_scaled_exit(trade)
+        >>> if success:
+        ...     print(f"Exit plan created: {exit_plan.id}")
+    """
+    # Import here to avoid circular import
+    from services.scale_out_manager import create_scaled_exit
+
+    entry_price = average_entry_price or float(trade.entry_price)
+
+    logger.info(
+        f"Creating scaled exit plan for trade {trade.id}: "
+        f"size={trade.size:.8f}, entry=${entry_price:.4f}"
+    )
+
+    try:
+        scaled_position = await create_scaled_exit(
+            trade=trade,
+            average_entry_price=entry_price,
+            session=session,
+        )
+
+        if scaled_position is None:
+            return False, "Failed to create scaled exit plan", None
+
+        logger.info(
+            f"Scaled exit plan {scaled_position.id} created: "
+            f"{scaled_position.num_scales} exits configured"
+        )
+
+        return True, None, scaled_position
+
+    except Exception as e:
+        logger.error(f"Error creating scaled exit: {e}")
+        return False, str(e), None
