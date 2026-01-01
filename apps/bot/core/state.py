@@ -125,31 +125,27 @@ class FinalDecision(TypedDict):
     timestamp: datetime
 
 
-class RegimeAnalysisState(TypedDict, total=False):
+class MultiFactorAnalysisState(TypedDict, total=False):
     """
-    Market regime analysis state (Story 5.1).
+    Multi-factor analysis result state (Story 5.3).
 
-    Contains the results of market regime detection including
-    moving average crossovers and trend strength.
+    Contains the aggregated results from multi-factor confirmation
+    analysis, including which factors were triggered for BUY and SELL.
 
     Attributes:
-        regime: Current market regime - "BULL", "BEAR", or "CHOP"
-        price_vs_200dma: Percentage above/below 200 DMA
-        sma_50: Current 50-period SMA value
-        sma_200: Current 200-period SMA value
-        golden_cross: True if SMA50 > SMA200 (bullish)
-        death_cross: True if SMA50 < SMA200 (bearish)
-        trend_strength: Trend strength 0-100
-        confidence: Detection confidence 0-100
-        reasoning: Human-readable explanation
+        action: The suggested action from multi-factor analysis
+        buy_factors_met: Number of BUY factors that were triggered
+        sell_factors_met: Number of SELL factors that were triggered
+        buy_factors_triggered: List of BUY factor names that were triggered
+        sell_factors_triggered: List of SELL factor names that were triggered
+        confidence: Confidence percentage based on weighted factor scoring
+        reasoning: Human-readable summary of the multi-factor analysis
     """
-    regime: str                 # "BULL", "BEAR", "CHOP"
-    price_vs_200dma: float
-    sma_50: float
-    sma_200: float
-    golden_cross: bool
-    death_cross: bool
-    trend_strength: float
+    action: str
+    buy_factors_met: int
+    sell_factors_met: int
+    buy_factors_triggered: List[str]
+    sell_factors_triggered: List[str]
     confidence: float
     reasoning: str
 
@@ -201,9 +197,11 @@ class GraphState(TypedDict):
     vision_analysis: Optional[VisionAnalysis]
     final_decision: Optional[FinalDecision]
 
-    # Market regime fields (Story 5.1)
-    daily_candles: List[Dict[str, Any]]  # Daily OHLCV for regime detection
-    regime_analysis: Optional[RegimeAnalysisState]  # Current market regime
+    # Multi-factor analysis (Story 5.3)
+    multi_factor_analysis: Optional[MultiFactorAnalysisState]
+
+    # Regime analysis (Story 5.1 - optional, for future integration)
+    regime_analysis: Optional[Dict[str, Any]]
 
     # Error handling
     error: Optional[str]
@@ -248,6 +246,7 @@ def create_initial_state(
         sentiment_analysis=None,
         vision_analysis=None,
         final_decision=None,
+        multi_factor_analysis=None,
         regime_analysis=None,
         error=None
     )

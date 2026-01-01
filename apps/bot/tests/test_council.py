@@ -58,12 +58,12 @@ class TestCouncilTestEndpoint:
         assert data["decision_action"] == "HOLD"
 
     def test_council_test_decision_confidence(self, client):
-        """Test council test returns valid confidence."""
+        """Test council test returns valid confidence from multi-factor analysis."""
         response = client.get("/api/council/test")
 
         assert response.status_code == 200
         data = response.json()
-        # Story 5.1: Confidence varies based on regime calculations
+        # Story 5.3: Confidence now calculated from multi-factor weights
         assert 0 <= data["decision_confidence"] <= 100
 
     def test_council_test_all_nodes_executed(self, client):
@@ -295,7 +295,7 @@ class TestCouncilSessionStubBehavior:
         assert data["vision_analysis"]["is_valid"] is False
 
     def test_session_stub_decision_hold(self, client):
-        """Test session stub returns HOLD decision."""
+        """Test session stub returns HOLD decision with multi-factor analysis."""
         response = client.post(
             "/api/council/session",
             json={"asset_symbol": "SOLUSD"}
@@ -303,7 +303,7 @@ class TestCouncilSessionStubBehavior:
 
         data = response.json()
         assert data["final_decision"]["action"] == "HOLD"
-        # Story 5.1: Confidence varies based on regime calculations
+        # Story 5.3: Confidence now calculated from multi-factor weights
         assert 0 <= data["final_decision"]["confidence"] <= 100
 
     def test_session_decision_has_timestamp(self, client):

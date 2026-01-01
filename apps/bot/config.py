@@ -237,6 +237,62 @@ def get_gemini_flash_model():
 
 
 @dataclass
+class MultiFactorConfig:
+    """
+    Multi-factor confirmation configuration (Story 5.3).
+
+    Controls the thresholds and minimum factor counts for the
+    multi-factor confirmation system that requires multiple
+    confirming signals before entering trades.
+
+    Factor Weights:
+        - Primary factors (1.5x): Extreme Fear/Greed
+        - Standard factors (1.0x): RSI, Price Position, Volume, Technicals
+        - Supplementary factors (0.75x): Vision, Volume Exhaustion
+    """
+
+    # Minimum factors required for BUY/SELL signal
+    min_factors_buy: int = field(
+        default_factory=lambda: int(os.getenv("MIN_FACTORS_BUY", "3"))
+    )
+    min_factors_sell: int = field(
+        default_factory=lambda: int(os.getenv("MIN_FACTORS_SELL", "2"))
+    )
+
+    # Fear & Greed thresholds
+    extreme_fear_threshold: int = field(
+        default_factory=lambda: int(os.getenv("EXTREME_FEAR_THRESHOLD", "25"))
+    )
+    extreme_greed_threshold: int = field(
+        default_factory=lambda: int(os.getenv("EXTREME_GREED_THRESHOLD", "75"))
+    )
+
+    # RSI thresholds
+    rsi_oversold_threshold: float = field(
+        default_factory=lambda: float(os.getenv("RSI_OVERSOLD_THRESHOLD", "30"))
+    )
+    rsi_overbought_threshold: float = field(
+        default_factory=lambda: float(os.getenv("RSI_OVERBOUGHT_THRESHOLD", "70"))
+    )
+
+    # Support/Resistance proximity (percentage)
+    support_proximity_pct: float = field(
+        default_factory=lambda: float(os.getenv("SUPPORT_PROXIMITY_PCT", "3.0"))
+    )
+    resistance_proximity_pct: float = field(
+        default_factory=lambda: float(os.getenv("RESISTANCE_PROXIMITY_PCT", "3.0"))
+    )
+
+    # Volume thresholds (multiplier of average)
+    volume_capitulation_mult: float = field(
+        default_factory=lambda: float(os.getenv("VOLUME_CAPITULATION_MULT", "2.0"))
+    )
+    volume_exhaustion_mult: float = field(
+        default_factory=lambda: float(os.getenv("VOLUME_EXHAUSTION_MULT", "0.5"))
+    )
+
+
+@dataclass
 class RiskConfig:
     """
     Risk management configuration for ATR-based stop loss (Story 3.2).
@@ -433,7 +489,7 @@ class Config:
     gemini: GeminiConfig = field(default_factory=GeminiConfig)
     gemini_vision: GeminiVisionConfig = field(default_factory=GeminiVisionConfig)
     risk: RiskConfig = field(default_factory=RiskConfig)
-    asset_universe: AssetUniverseConfig = field(default_factory=AssetUniverseConfig)
+    multi_factor: MultiFactorConfig = field(default_factory=MultiFactorConfig)
     web_url: str = field(default_factory=lambda: os.getenv("WEB_URL", ""))
     debug: bool = field(
         default_factory=lambda: os.getenv("DEBUG", "").lower() == "true"

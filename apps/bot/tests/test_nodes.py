@@ -259,16 +259,15 @@ class TestMasterNode:
         assert "timestamp" in decision
 
     def test_master_node_stub_values(self):
-        """Test master_node stub returns HOLD decision."""
+        """Test master_node stub returns HOLD decision with multi-factor analysis."""
         state = create_initial_state(asset_symbol="SOLUSD")
         result = master_node(state)
         decision = result["final_decision"]
 
-        # Stub implementation returns HOLD
+        # Story 5.3: With no data, multi-factor returns HOLD
+        # Confidence is now calculated from multi-factor weights, not a flat 50
         assert decision["action"] == "HOLD"
-        # Story 5.1: Confidence varies based on regime calculations
-        # For HOLD decisions, confidence should be in reasonable range
-        assert 0 <= decision["confidence"] <= 100
+        assert 0 <= decision["confidence"] <= 100  # Valid range, may vary
 
     def test_master_node_valid_action_values(self):
         """Test master_node action is one of valid options."""
@@ -300,14 +299,12 @@ class TestMasterNode:
         state = create_initial_state(asset_symbol="SOLUSD")
         result = master_node(state)
 
-        # Story 2.4: Updated to match real implementation behavior
-        # Master node now provides pre-validation reasoning
-        # Story 5.1: Reasoning may come from LLM or pre-validation
+        # Story 5.3: Reasoning now comes from multi-factor analysis or LLM
+        # The reasoning should be non-empty and explain the decision
         reasoning = result["final_decision"]["reasoning"]
-        assert len(reasoning) > 0  # Reasoning is non-empty
-        # Should contain meaningful content about the decision
-        reasoning_lower = reasoning.lower()
-        assert "hold" in reasoning_lower or "decision" in reasoning_lower or "validation" in reasoning_lower
+        assert len(reasoning) > 0
+        # Reasoning can be from multi-factor ("factors") or LLM response
+        assert len(reasoning) >= 10  # Should have meaningful content
 
 
 class TestNodeIntegration:

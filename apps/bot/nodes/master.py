@@ -35,6 +35,7 @@ from services.decision_logic import (
     pre_validate_decision,
     pre_validate_decision_with_regime,
     calculate_decision_confidence,
+    validate_decision_with_multi_factor,
 )
 from services.market_regime import (
     classify_market_regime,
@@ -111,31 +112,30 @@ def master_node(state: GraphState) -> Dict[str, Any]:
     Master Synthesis Node - Makes final trading decision.
 
     This node synthesizes all agent analyses and makes the final
-    trading decision using a two-layer safety system:
+    trading decision using a multi-layer safety system:
 
-    1. Regime Detection: Classify market as BULL/BEAR/CHOP (Story 5.1)
-    2. Pre-validation: Regime-adjusted logic check before LLM call
-    3. Post-validation: Override if LLM disagrees with pre-validation
+    1. Multi-factor validation: Check if 3+ factors align for BUY/SELL (Story 5.3)
+    2. Pre-validation: Pure logic check as backup
+    3. LLM synthesis: AI reasoning for the decision
+    4. Post-validation: Override if LLM disagrees with pre-validation
 
     Args:
         state: Current GraphState with all agent analyses
 
     Returns:
-        Dict with final_decision and regime_analysis fields populated
+        Dict with final_decision and multi_factor_analysis fields populated
 
     Note:
         Returns dict with only the fields to update (LangGraph pattern),
         not the full state. LangGraph merges this with existing state.
 
-    Decision Logic (regime-adjusted, Story 5.1):
-        BULL: BUY = (fear < 30) AND (technical = "BULLISH") AND (vision_valid)
-        BEAR: BUY = (fear < 20) AND (technical strength >= 65) AND (vision_valid)
-        CHOP: BUY = (fear < 15) AND (technical strength >= 75) AND (vision_valid)
-        SELL = (fear > 80) OR (technical = "BEARISH" with strength > 70)
-        HOLD = All other cases
+    Decision Logic (Story 5.3):
+        BUY = 3+ of 6 factors triggered (configurable)
+        SELL = 2+ of 5 factors triggered (configurable)
+        HOLD = Neither threshold met
 
     Safety:
-        If LLM suggests BUY but pre-validation disagrees, override to HOLD.
+        If LLM suggests BUY but multi-factor validation disagrees, override to HOLD.
         This prevents the LLM from being "creative" with trading decisions.
     """
     asset = state.get("asset_symbol", "UNKNOWN")
@@ -144,31 +144,33 @@ def master_node(state: GraphState) -> Dict[str, Any]:
     sentiment = state.get("sentiment_analysis") or {}
     technical = state.get("technical_analysis") or {}
     vision = state.get("vision_analysis") or {}
+    regime = state.get("regime_analysis")
+
+    # Get current price from candles data
+    candles = state.get("candles_data", [])
+    current_price = float(candles[-1].get("close", 0)) if candles else 0
 
     logger.info(f"[MasterNode] Synthesizing decision for {asset}")
     logger.debug(f"[MasterNode] Sentiment: {sentiment}")
     logger.debug(f"[MasterNode] Technical: {technical}")
     logger.debug(f"[MasterNode] Vision: {vision}")
+    logger.debug(f"[MasterNode] Current Price: {current_price}")
 
-    # Story 5.1: Classify market regime from daily candles
-    daily_candles = state.get("daily_candles", [])
-    if len(daily_candles) >= 200:
-        regime_analysis = classify_market_regime(daily_candles)
-        logger.info(f"[MasterNode] Regime: {regime_analysis.regime.value} ({regime_analysis.reasoning})")
-    else:
-        # Default to CHOP if insufficient data
-        regime_analysis = get_default_regime()
-        logger.warning(
-            f"[MasterNode] Insufficient daily candles ({len(daily_candles)}), "
-            f"defaulting to {regime_analysis.regime.value} regime"
-        )
+    # Multi-factor validation (Story 5.3)
+    mf_action, mf_details = validate_decision_with_multi_factor(
+        sentiment_analysis=sentiment,
+        technical_analysis=technical,
+        vision_analysis=vision,
+        current_price=current_price,
+        regime_analysis=regime
+    )
+    logger.info(f"[MasterNode] Multi-factor validation suggests: {mf_action}")
+    logger.info(f"[MasterNode] Factors met: {mf_details['factors_met']}")
+    logger.debug(f"[MasterNode] Multi-factor reasoning: {mf_details['reasoning']}")
 
-    # Convert regime analysis to dict for state
-    regime_analysis_dict = regime_analysis.to_dict()
-
-    # Pre-validation safety check with regime adjustments (Story 5.1)
-    suggested_action, validation_reasons, adjustments = pre_validate_decision_with_regime(
-        sentiment, technical, vision, regime_analysis_dict
+    # Pre-validation safety check (legacy, kept for backup)
+    suggested_action, validation_reasons = pre_validate_decision(
+        sentiment, technical, vision
     )
     logger.info(f"[MasterNode] Pre-validation suggests: {suggested_action}")
     for reason in validation_reasons:
@@ -209,40 +211,35 @@ def master_node(state: GraphState) -> Dict[str, Any]:
         logger.error(f"[MasterNode] Error calling Gemini API: {e}")
         logger.info("[MasterNode] Falling back to pre-validation decision")
 
-    # Determine final action
+    # Determine final action using multi-factor as primary
     if llm_response:
         final_action = llm_response["action"]
         reasoning = llm_response["reasoning"]
 
-        # Safety check: Override if LLM disagrees with pre-validation for BUY
-        if final_action == "BUY" and suggested_action != "BUY":
+        # Safety check: Override if LLM disagrees with multi-factor validation for BUY
+        if final_action == "BUY" and mf_action != "BUY":
             logger.warning(
                 f"[MasterNode] SAFETY OVERRIDE: LLM suggested BUY but "
-                f"pre-validation said {suggested_action}"
+                f"multi-factor validation said {mf_action}"
             )
             final_action = "HOLD"
             reasoning = (
-                f"Safety override: LLM suggested BUY but conditions not met. "
-                f"Pre-validation: {suggested_action}. "
+                f"Safety override: LLM suggested BUY but multi-factor conditions not met. "
+                f"Multi-factor: {mf_action} ({mf_details['factors_met']} factors). "
                 f"Original reasoning: {reasoning}"
             )
             logger.info("[MasterNode] Overriding to HOLD for safety")
 
-        # Calculate confidence based on actual inputs
-        confidence = calculate_decision_confidence(
-            final_action, sentiment, technical, vision
-        )
-        # Blend with LLM confidence
+        # Use multi-factor confidence as primary, blend with LLM
+        confidence = int(mf_details["confidence"])
         if llm_response["confidence"] > 0:
             confidence = (confidence + llm_response["confidence"]) // 2
 
     else:
-        # No LLM response - use pre-validation
-        final_action = suggested_action
-        reasoning = f"Pre-validation decision: {'; '.join(validation_reasons)}"
-        confidence = calculate_decision_confidence(
-            final_action, sentiment, technical, vision
-        )
+        # No LLM response - use multi-factor validation
+        final_action = mf_action
+        reasoning = mf_details["reasoning"]
+        confidence = int(mf_details["confidence"])
 
     # Build final decision
     final_decision: FinalDecision = {
@@ -258,9 +255,21 @@ def master_node(state: GraphState) -> Dict[str, Any]:
         f"[Regime: {regime_analysis_dict['regime']}]"
     )
 
+    # Build multi-factor analysis state (Story 5.3)
+    buy_analysis = mf_details["buy_analysis"]
+    sell_analysis = mf_details["sell_analysis"]
+    multi_factor_analysis = {
+        "action": mf_action,
+        "buy_factors_met": buy_analysis.factors_met,
+        "sell_factors_met": sell_analysis.factors_met,
+        "buy_factors_triggered": [f.factor for f in buy_analysis.factors_triggered],
+        "sell_factors_triggered": [f.factor for f in sell_analysis.factors_triggered],
+        "confidence": mf_details["confidence"],
+        "reasoning": mf_details["reasoning"]
+    }
+
     # Return only the fields to update (LangGraph merge pattern)
-    # Story 5.1: Include regime_analysis in response for logging
     return {
         "final_decision": final_decision,
-        "regime_analysis": regime_analysis_dict
+        "multi_factor_analysis": multi_factor_analysis
     }

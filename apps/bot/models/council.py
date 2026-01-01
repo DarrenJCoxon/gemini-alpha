@@ -86,19 +86,19 @@ class CouncilSession(SQLModel, table=True):
         sa_column=Column("createdAt", DateTime, nullable=False),
     )
 
-    # Market Regime fields (Story 5.1)
-    market_regime: Optional[str] = Field(
+    # Story 5.3: Multi-Factor Analysis
+    buy_factors_met: Optional[int] = Field(
         default=None,
-        sa_column=Column("marketRegime", String(10), nullable=True),
+        sa_column=Column("buyFactorsMet", Integer, nullable=True),
     )
-    regime_confidence: Optional[int] = Field(
+    sell_factors_met: Optional[int] = Field(
         default=None,
-        sa_column=Column("regimeConfidence", Integer, nullable=True),
+        sa_column=Column("sellFactorsMet", Integer, nullable=True),
     )
-    price_vs_200dma: Optional[Decimal] = Field(
+    factors_triggered: Optional[str] = Field(
         default=None,
-        sa_column=Column("priceVs200Dma", Numeric(10, 4), nullable=True),
-    )
+        sa_column=Column("factorsTriggered", Text, nullable=True),
+    )  # JSON string of triggered factors
 
     # Relationships
     asset: Optional["Asset"] = Relationship(back_populates="council_sessions")
