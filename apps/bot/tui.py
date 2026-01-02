@@ -625,7 +625,8 @@ class TradingDashboard:
             conf = s.get("visionConfidence")
             conf_str = f"{conf}%" if conf is not None else "-"
 
-            reasoning = s.get("reasoning", "")[:60] + "..." if s.get("reasoning") else "-"
+            reasoning_text = s.get("reasoningLog") or s.get("reasoning") or ""
+            reasoning = reasoning_text[:60] + "..." if reasoning_text else "-"
 
             table.add_row(
                 time_str,
