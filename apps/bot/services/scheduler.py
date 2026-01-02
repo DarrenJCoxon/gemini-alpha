@@ -520,9 +520,16 @@ async def run_council_cycle() -> dict[str, Any]:
     Story 2.4: Master Node & Signal Logging
     Story 3.1: Kraken Order Execution Service
     Story 3.4: Global Safety Switch Integration
+    Story 5.9: Basket Trading System Integration
 
-    Called every 15 minutes by scheduler. Processes each active asset
-    through the Council of AI Agents and logs decisions to database.
+    Called every 15 minutes (or hourly if basket.hourly_council_enabled).
+    Processes each active asset through the Council of AI Agents.
+
+    BASKET CHECKS (Story 5.9):
+    1. Check if basket has room for new positions (max 10)
+    2. Check correlation with existing positions
+    3. Require reversal confirmation before BUY
+    4. Consider position rotation if basket full
 
     SAFETY CHECKS (Story 3.4):
     1. Check is_trading_enabled() FIRST - skip if disabled
@@ -550,6 +557,15 @@ async def run_council_cycle() -> dict[str, Any]:
         get_system_status,
         enforce_max_drawdown,
     )
+    from services.basket_manager import (
+        can_open_new_position,
+        get_position_count,
+        initialize_basket_manager,
+    )
+    from services.reversal_detector import (
+        detect_bullish_reversal,
+        detect_volume_exhaustion,
+    )
     from models import SystemStatus
 
     start_time = datetime.now(timezone.utc)
@@ -557,10 +573,22 @@ async def run_council_cycle() -> dict[str, Any]:
     council_logger.info(f"[Cycle] Starting council cycle at {start_time.isoformat()}")
     council_logger.info(f"{'='*60}")
 
+    # Initialize basket manager
+    await initialize_basket_manager()
+
     # Check execution mode
     exec_client = get_kraken_execution_client()
     exec_mode = "SANDBOX" if exec_client.is_sandbox else "LIVE"
     council_logger.info(f"[Cycle] Execution mode: {exec_mode}")
+
+    # Story 5.9: Log basket status
+    config = get_config()
+    basket_count = await get_position_count()
+    council_logger.info(
+        f"[Cycle] Basket: {basket_count}/{config.basket.max_positions} positions "
+        f"(Fear threshold: <{config.basket.fear_threshold_buy}, "
+        f"Greed threshold: >{config.basket.greed_threshold_sell})"
+    )
 
     stats = {
         "start_time": start_time.isoformat(),
@@ -572,6 +600,8 @@ async def run_council_cycle() -> dict[str, Any]:
         "hold_signals": 0,
         "orders_executed": 0,
         "orders_blocked": 0,
+        "basket_full_blocks": 0,
+        "reversal_not_confirmed": 0,
         "errors": [],
     }
 
@@ -709,35 +739,63 @@ async def run_council_cycle() -> dict[str, Any]:
                                 f"open position already exists"
                             )
                             stats["orders_blocked"] += 1
-                        else:
-                            # Extract stop loss from decision if available
-                            stop_loss_price = decision.get("stop_loss_price")
+                            continue
 
-                            # Execute buy order via execution service
+                        # Story 5.9: Check basket capacity
+                        can_open, basket_reason = await can_open_new_position(session)
+                        if not can_open:
                             council_logger.info(
-                                f"[Cycle] Executing BUY for {asset.symbol} "
-                                f"(${default_position_size_usd:.2f} USD)..."
+                                f"[Cycle] BUY blocked for {asset.symbol} - "
+                                f"basket full ({basket_reason})"
                             )
+                            stats["basket_full_blocks"] += 1
+                            stats["orders_blocked"] += 1
+                            continue
 
-                            success, error, trade = await execute_buy(
-                                symbol=asset.symbol,
-                                amount_usd=default_position_size_usd,
-                                stop_loss_price=stop_loss_price,
-                                client=exec_client,
-                                session=session,
+                        # Story 5.9: Require reversal confirmation
+                        reversal = detect_bullish_reversal(candles)
+                        if not reversal.is_confirmed:
+                            council_logger.info(
+                                f"[Cycle] BUY blocked for {asset.symbol} - "
+                                f"reversal not confirmed: {reversal.reasoning}"
                             )
+                            stats["reversal_not_confirmed"] += 1
+                            stats["orders_blocked"] += 1
+                            continue
 
-                            if success:
-                                stats["orders_executed"] += 1
-                                council_logger.info(
-                                    f"[Cycle] [{exec_mode}] BUY order executed: "
-                                    f"Trade ID {trade.id if trade else 'N/A'}"
-                                )
-                            else:
-                                stats["orders_blocked"] += 1
-                                council_logger.warning(
-                                    f"[Cycle] BUY order failed for {asset.symbol}: {error}"
-                                )
+                        council_logger.info(
+                            f"[Cycle] Reversal confirmed for {asset.symbol}: "
+                            f"{reversal.reasoning}"
+                        )
+
+                        # Extract stop loss from decision if available
+                        stop_loss_price = decision.get("stop_loss_price")
+
+                        # Execute buy order via execution service
+                        council_logger.info(
+                            f"[Cycle] Executing BUY for {asset.symbol} "
+                            f"(${default_position_size_usd:.2f} USD)..."
+                        )
+
+                        success, error, trade = await execute_buy(
+                            symbol=asset.symbol,
+                            amount_usd=default_position_size_usd,
+                            stop_loss_price=stop_loss_price,
+                            client=exec_client,
+                            session=session,
+                        )
+
+                        if success:
+                            stats["orders_executed"] += 1
+                            council_logger.info(
+                                f"[Cycle] [{exec_mode}] BUY order executed: "
+                                f"Trade ID {trade.id if trade else 'N/A'}"
+                            )
+                        else:
+                            stats["orders_blocked"] += 1
+                            council_logger.warning(
+                                f"[Cycle] BUY order failed for {asset.symbol}: {error}"
+                            )
 
                     elif action == "SELL":
                         stats["sell_signals"] += 1
@@ -1115,20 +1173,31 @@ def create_scheduler() -> AsyncIOScheduler:
         "(runs BEFORE Council cycle)"
     )
 
-    # Add the Council cycle job (Story 2.4)
-    # Runs at 15-minute intervals, offset by 5 minutes to allow data ingestion first
-    # e.g., if ingestion runs at :00, :15, :30, :45, council runs at :05, :20, :35, :50
+    # Add the Council cycle job (Story 2.4, Story 5.9)
+    # Story 5.9: Optionally run hourly (aligned with scanner) instead of every 15 min
+    # Hourly: Runs at minute 15 each hour (after scanner at minute 10)
+    # 15-min: Runs at :05, :20, :35, :50 (after data ingestion)
+    if config.basket.hourly_council_enabled:
+        council_schedule = "15"
+        council_name = "Council Decision Cycle (Hourly - Basket Mode)"
+        council_logger.info(
+            "Scheduler configured with Council cycle at minute: 15 "
+            "(Hourly - aligned with scanner for Basket Trading)"
+        )
+    else:
+        council_schedule = "5,20,35,50"
+        council_name = "Council Decision Cycle (Paper Trading)"
+        council_logger.info(
+            "Scheduler configured with Council cycle at minutes: 5,20,35,50 (Paper Trading mode)"
+        )
+
     scheduler.add_job(
         run_council_cycle,
-        CronTrigger(minute="5,20,35,50"),
+        CronTrigger(minute=council_schedule),
         id="council_cycle",
-        name="Council Decision Cycle (Paper Trading)",
+        name=council_name,
         replace_existing=True,
         max_instances=1,  # Prevent overlapping executions
-    )
-
-    council_logger.info(
-        "Scheduler configured with Council cycle at minutes: 5,20,35,50 (Paper Trading mode)"
     )
 
     # Add the Opportunity Scanner job (Story 5.8)

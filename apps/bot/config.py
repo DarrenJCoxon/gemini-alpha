@@ -594,6 +594,134 @@ class MultiFactorConfig:
 
 
 @dataclass
+class BasketConfig:
+    """
+    Basket Trading System configuration (Story 5.9).
+
+    Controls portfolio-level position management:
+    - Maximum concurrent positions (10)
+    - Correlation limits between basket members
+    - Position rotation rules
+    - Balanced thresholds (not too contrarian)
+
+    Philosophy: Catch reversals that HOLD, not falling knives.
+    """
+
+    # Maximum number of concurrent positions
+    max_positions: int = field(
+        default_factory=lambda: int(os.getenv("BASKET_MAX_POSITIONS", "10"))
+    )
+
+    # Minimum positions to maintain (avoid concentration)
+    min_positions: int = field(
+        default_factory=lambda: int(os.getenv("BASKET_MIN_POSITIONS", "3"))
+    )
+
+    # Maximum allocation to single position (% of portfolio)
+    max_single_position_pct: float = field(
+        default_factory=lambda: float(os.getenv("BASKET_MAX_SINGLE_PCT", "15.0"))
+    )
+
+    # Maximum correlation between basket members (0-1)
+    max_correlation: float = field(
+        default_factory=lambda: float(os.getenv("BASKET_MAX_CORRELATION", "0.7"))
+    )
+
+    # Correlation lookback period (days)
+    correlation_lookback_days: int = field(
+        default_factory=lambda: int(os.getenv("BASKET_CORRELATION_DAYS", "30"))
+    )
+
+    # Position rotation: minimum holding period (hours) before considering exit
+    min_hold_hours: int = field(
+        default_factory=lambda: int(os.getenv("BASKET_MIN_HOLD_HOURS", "4"))
+    )
+
+    # Position rotation: max age before forced review (hours)
+    max_position_age_hours: int = field(
+        default_factory=lambda: int(os.getenv("BASKET_MAX_AGE_HOURS", "168"))
+    )  # 7 days
+
+    # Enable hourly council (aligned with scanner) vs 15-min
+    hourly_council_enabled: bool = field(
+        default_factory=lambda: os.getenv("BASKET_HOURLY_COUNCIL", "true").lower() == "true"
+    )
+
+    # =============================================================================
+    # BALANCED THRESHOLDS (Not Too Contrarian)
+    # =============================================================================
+
+    # Fear & Greed thresholds (relaxed from 25/75 to 40/60)
+    fear_threshold_buy: int = field(
+        default_factory=lambda: int(os.getenv("BASKET_FEAR_BUY", "40"))
+    )  # Was 25 - too extreme
+    greed_threshold_sell: int = field(
+        default_factory=lambda: int(os.getenv("BASKET_GREED_SELL", "60"))
+    )  # Was 75 - too extreme
+
+    # RSI thresholds (relaxed from 30/70 to 35/65)
+    rsi_oversold: int = field(
+        default_factory=lambda: int(os.getenv("BASKET_RSI_OVERSOLD", "35"))
+    )  # Was 30
+    rsi_overbought: int = field(
+        default_factory=lambda: int(os.getenv("BASKET_RSI_OVERBOUGHT", "65"))
+    )  # Was 70
+
+    # ADX threshold (increased to allow trending markets)
+    adx_max_for_entry: int = field(
+        default_factory=lambda: int(os.getenv("BASKET_ADX_MAX", "40"))
+    )  # Was 25 - rejected trending markets
+
+    # =============================================================================
+    # REVERSAL CONFIRMATION REQUIREMENTS
+    # =============================================================================
+
+    # Require MACD bullish crossover for BUY
+    require_macd_confirmation: bool = field(
+        default_factory=lambda: os.getenv("BASKET_REQUIRE_MACD", "true").lower() == "true"
+    )
+
+    # Require higher-low pattern (price above prior swing low)
+    require_higher_low: bool = field(
+        default_factory=lambda: os.getenv("BASKET_REQUIRE_HIGHER_LOW", "true").lower() == "true"
+    )
+
+    # Minimum candles since reversal to confirm it's holding
+    reversal_confirmation_candles: int = field(
+        default_factory=lambda: int(os.getenv("BASKET_REVERSAL_CANDLES", "3"))
+    )
+
+    # =============================================================================
+    # VOLUME EXHAUSTION DETECTION
+    # =============================================================================
+
+    # Detect volume climax followed by declining volume
+    volume_climax_mult: float = field(
+        default_factory=lambda: float(os.getenv("BASKET_VOLUME_CLIMAX_MULT", "2.0"))
+    )
+
+    # Consecutive declining volume periods to confirm exhaustion
+    exhaustion_decline_periods: int = field(
+        default_factory=lambda: int(os.getenv("BASKET_EXHAUSTION_PERIODS", "3"))
+    )
+
+    def validate(self) -> None:
+        """Validate basket configuration values."""
+        if not (1 <= self.max_positions <= 20):
+            raise ValueError(f"max_positions must be 1-20, got {self.max_positions}")
+        if not (0 <= self.min_positions <= self.max_positions):
+            raise ValueError(f"min_positions must be 0-{self.max_positions}")
+        if not (5.0 <= self.max_single_position_pct <= 50.0):
+            raise ValueError(f"max_single_position_pct must be 5-50%")
+        if not (0.3 <= self.max_correlation <= 1.0):
+            raise ValueError(f"max_correlation must be 0.3-1.0")
+        if not (10 <= self.fear_threshold_buy <= 50):
+            raise ValueError(f"fear_threshold_buy must be 10-50")
+        if not (50 <= self.greed_threshold_sell <= 90):
+            raise ValueError(f"greed_threshold_sell must be 50-90")
+
+
+@dataclass
 class ScaleConfig:
     """
     Position scaling configuration (Story 5.4).
@@ -723,6 +851,7 @@ class Config:
     onchain: OnChainConfig = field(default_factory=OnChainConfig)
     scanner: ScannerConfig = field(default_factory=ScannerConfig)
     multi_factor: MultiFactorConfig = field(default_factory=MultiFactorConfig)
+    basket: BasketConfig = field(default_factory=BasketConfig)
     web_url: str = field(default_factory=lambda: os.getenv("WEB_URL", ""))
     debug: bool = field(
         default_factory=lambda: os.getenv("DEBUG", "").lower() == "true"

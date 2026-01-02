@@ -255,14 +255,14 @@ def check_obv_distribution(technical_analysis: Dict[str, Any]) -> FactorResult:
 
 def check_adx_weak_trend(technical_analysis: Dict[str, Any]) -> FactorResult:
     """
-    Check if ADX indicates weak trend (good for contrarian).
+    Check if ADX allows entry (balanced for crypto volatility).
 
-    CRITICAL: This is the most important factor for contrarian strategy.
+    Story 5.9: Relaxed from 30 to 40 to allow trending markets.
+    Crypto naturally trends - we shouldn't reject all trends.
+
     - ADX < 20: Weak trend - IDEAL for contrarian
-    - ADX 20-30: Moderate - acceptable
-    - ADX > 30: AVOID contrarian trades
-
-    Triggers when ADX < 30 (safe_for_contrarian = True).
+    - ADX 20-40: Moderate - acceptable (relaxed from 30)
+    - ADX > 40: Strong trend - use caution
 
     Args:
         technical_analysis: Dict from Technical Agent with adx key
@@ -270,25 +270,29 @@ def check_adx_weak_trend(technical_analysis: Dict[str, Any]) -> FactorResult:
     Returns:
         FactorResult with triggered status
     """
+    from config import get_config
+    config = get_config().basket
+
     adx = technical_analysis.get("adx", {})
     adx_value = adx.get("value", 50)
-    safe = adx.get("safe_for_contrarian", False)
+    threshold = config.adx_max_for_entry  # Now 40, was 30
 
-    triggered = safe
+    # Trigger if ADX is below threshold (safe for entry)
+    triggered = adx_value < threshold
 
     if adx_value < 20:
-        reasoning = f"ADX: {adx_value:.1f} - IDEAL for contrarian (weak trend)"
-    elif adx_value < 30:
-        reasoning = f"ADX: {adx_value:.1f} - acceptable for contrarian"
+        reasoning = f"ADX: {adx_value:.1f} - weak trend (ideal)"
+    elif adx_value < threshold:
+        reasoning = f"ADX: {adx_value:.1f} - moderate trend (acceptable)"
     else:
-        reasoning = f"ADX: {adx_value:.1f} - AVOID contrarian (strong trend)"
+        reasoning = f"ADX: {adx_value:.1f} - strong trend (caution)"
 
     return FactorResult(
         factor=BuyFactor.ADX_WEAK_TREND.value,
         triggered=triggered,
         value=adx_value,
-        threshold=30,  # Below 30 is safe
-        weight=FactorWeight.ADX.value,  # Higher weight - important for contrarian
+        threshold=threshold,
+        weight=FactorWeight.ADX.value,
         reasoning=reasoning
     )
 
@@ -516,9 +520,16 @@ def count_triggered_factors(results: List[FactorResult]) -> int:
 # =============================================================================
 
 def check_extreme_fear(sentiment_analysis: Dict[str, Any]) -> FactorResult:
-    """Check if Fear & Greed index indicates extreme fear."""
+    """
+    Check if Fear & Greed index indicates fear (balanced threshold).
+
+    Story 5.9: Relaxed from 25 to 40 to avoid being too contrarian.
+    """
+    from config import get_config
+    config = get_config().basket
+
     fear_score = sentiment_analysis.get("fear_score", 50)
-    threshold = 25
+    threshold = config.fear_threshold_buy  # Now 40, was 25
     triggered = fear_score < threshold
 
     return FactorResult(
@@ -527,14 +538,21 @@ def check_extreme_fear(sentiment_analysis: Dict[str, Any]) -> FactorResult:
         value=fear_score,
         threshold=threshold,
         weight=1.0,
-        reasoning=f"Fear & Greed: {fear_score} ({'extreme fear' if triggered else 'not extreme fear'})"
+        reasoning=f"Fear & Greed: {fear_score} ({'fear zone' if triggered else 'not fearful'})"
     )
 
 
 def check_extreme_greed(sentiment_analysis: Dict[str, Any]) -> FactorResult:
-    """Check if Fear & Greed index indicates extreme greed."""
+    """
+    Check if Fear & Greed index indicates greed (balanced threshold).
+
+    Story 5.9: Relaxed from 75 to 60 to catch exhaustion earlier.
+    """
+    from config import get_config
+    config = get_config().basket
+
     fear_score = sentiment_analysis.get("fear_score", 50)
-    threshold = 75
+    threshold = config.greed_threshold_sell  # Now 60, was 75
     triggered = fear_score > threshold
 
     return FactorResult(
@@ -543,14 +561,21 @@ def check_extreme_greed(sentiment_analysis: Dict[str, Any]) -> FactorResult:
         value=fear_score,
         threshold=threshold,
         weight=1.0,
-        reasoning=f"Fear & Greed: {fear_score} ({'extreme greed' if triggered else 'not extreme greed'})"
+        reasoning=f"Fear & Greed: {fear_score} ({'greed zone' if triggered else 'not greedy'})"
     )
 
 
 def check_rsi_oversold(technical_analysis: Dict[str, Any]) -> FactorResult:
-    """Check if RSI indicates oversold conditions."""
+    """
+    Check if RSI indicates oversold conditions (balanced threshold).
+
+    Story 5.9: Relaxed from 30 to 35 to catch reversals earlier.
+    """
+    from config import get_config
+    config = get_config().basket
+
     rsi = technical_analysis.get("rsi", 50)
-    threshold = 30
+    threshold = config.rsi_oversold  # Now 35, was 30
     triggered = rsi < threshold
 
     return FactorResult(
@@ -559,14 +584,21 @@ def check_rsi_oversold(technical_analysis: Dict[str, Any]) -> FactorResult:
         value=rsi,
         threshold=threshold,
         weight=1.0,
-        reasoning=f"RSI: {rsi:.1f} ({'oversold' if triggered else 'not oversold'})"
+        reasoning=f"RSI: {rsi:.1f} ({'oversold zone' if triggered else 'not oversold'})"
     )
 
 
 def check_rsi_overbought(technical_analysis: Dict[str, Any]) -> FactorResult:
-    """Check if RSI indicates overbought conditions."""
+    """
+    Check if RSI indicates overbought conditions (balanced threshold).
+
+    Story 5.9: Relaxed from 70 to 65 to catch exhaustion earlier.
+    """
+    from config import get_config
+    config = get_config().basket
+
     rsi = technical_analysis.get("rsi", 50)
-    threshold = 70
+    threshold = config.rsi_overbought  # Now 65, was 70
     triggered = rsi > threshold
 
     return FactorResult(
@@ -575,7 +607,7 @@ def check_rsi_overbought(technical_analysis: Dict[str, Any]) -> FactorResult:
         value=rsi,
         threshold=threshold,
         weight=1.0,
-        reasoning=f"RSI: {rsi:.1f} ({'overbought' if triggered else 'not overbought'})"
+        reasoning=f"RSI: {rsi:.1f} ({'overbought zone' if triggered else 'not overbought'})"
     )
 
 
