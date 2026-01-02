@@ -2,17 +2,25 @@
 APScheduler configuration for the Contrarian AI Trading Bot.
 
 This module provides the scheduler setup and the main ingestion jobs:
-- OHLCV data fetching from Kraken at 15-minute intervals (Story 1.3)
-- Sentiment data fetching from LunarCrush/socials at 15-minute intervals (Story 1.4)
-- Position management every 15 minutes (Story 3.3)
-- Safety checks with drawdown guard every 15 minutes (Story 3.4)
-- Quality asset universe filtering (Story 5.2)
 
-Based on Story 1.3: Kraken Data Ingestor requirements.
-Based on Story 1.4: Sentiment Ingestor requirements.
-Based on Story 3.3: Position Manager requirements.
-Based on Story 3.4: Global Safety Switch requirements.
-Based on Story 5.2: Asset Universe Reduction requirements.
+EVERY 15 MINUTES (capital protection):
+- Kraken OHLCV at :00, :15, :30, :45 (fresh prices for stop checks)
+- Position Manager at :03, :18, :33, :48 (stop-loss, trailing stops)
+
+HOURLY (Council decisions - Basket Trading mode):
+- Opportunity Scanner at :10 (find top opportunities)
+- Sentiment + On-Chain at :14 (prep for Council)
+- Council Cycle at :15 (AI analysis + trade execution)
+
+Story References:
+- Story 1.3: Kraken Data Ingestor
+- Story 1.4: Sentiment Ingestor
+- Story 3.3: Position Manager
+- Story 3.4: Global Safety Switch
+- Story 5.2: Asset Universe Reduction
+- Story 5.6: On-Chain Data Integration
+- Story 5.8: Dynamic Opportunity Scanner
+- Story 5.9: Basket Trading System (optimized schedule)
 """
 
 import asyncio
@@ -1094,15 +1102,21 @@ def create_scheduler() -> AsyncIOScheduler:
     """
     Create and configure the APScheduler instance.
 
-    Job Execution Order (Story 3.3, 3.4, 5.6 - CRITICAL):
-    1. :00, :15, :30, :45 - Data ingestion (Kraken + Sentiment + On-Chain)
-    2. :03, :18, :33, :48 - Position check (stops/breakeven/trailing)
-    3. :05, :20, :35, :50 - Council cycle (analysis + new entries)
-                           Includes safety checks (is_trading_enabled, enforce_max_drawdown)
+    Job Execution Order (Story 3.3, 3.4, 5.6, 5.9 - CRITICAL):
 
-    Position check runs BEFORE Council to protect capital first.
-    Safety checks are integrated into Council cycle.
-    On-chain data is available for Council analysis.
+    EVERY 15 MINUTES (for Position Manager stop-loss protection):
+    1. :00, :15, :30, :45 - Kraken OHLCV (fresh prices for stop checks)
+    2. :03, :18, :33, :48 - Position check (stops/breakeven/trailing)
+
+    HOURLY (for Council decisions - Basket Trading mode):
+    3. :10 - Opportunity Scanner (find top opportunities)
+    4. :14 - Sentiment + On-Chain ingestion (prep for Council)
+    5. :15 - Council cycle (analysis + new entries)
+
+    Benefits of optimized schedule:
+    - Stop-losses checked every 15 min with fresh prices (capital protection)
+    - Sentiment/On-Chain API calls reduced 75% (4x → 1x per hour)
+    - Council gets all fresh data right before it runs
 
     Returns:
         Configured AsyncIOScheduler
@@ -1125,34 +1139,36 @@ def create_scheduler() -> AsyncIOScheduler:
         f"Scheduler configured with Kraken ingestion at minutes: {config.scheduler.ingest_cron_minutes}"
     )
 
-    # Add the Sentiment ingestion job (Story 1.4)
-    # Runs at the same 15-minute intervals but slightly offset to avoid conflicts
+    # Add the Sentiment ingestion job (Story 1.4, Story 5.9)
+    # Story 5.9: Optimized to run hourly at minute 14 (just before Council at :15)
+    # Only needed for Council decisions, not for Position Manager
     scheduler.add_job(
         ingest_sentiment_data,
-        CronTrigger(minute=config.scheduler.ingest_cron_minutes),
+        CronTrigger(minute="14"),
         id="sentiment_ingest",
-        name="Sentiment Data Ingestion",
+        name="Sentiment Data Ingestion (Hourly)",
         replace_existing=True,
         max_instances=1,  # Prevent overlapping executions
     )
 
     sentiment_logger.info(
-        f"Scheduler configured with Sentiment ingestion at minutes: {config.scheduler.ingest_cron_minutes}"
+        "Scheduler configured with Sentiment ingestion at minute: 14 (hourly - before Council)"
     )
 
-    # Add the On-Chain ingestion job (Story 5.6)
-    # Runs at the same 15-minute intervals as other data ingestion
+    # Add the On-Chain ingestion job (Story 5.6, Story 5.9)
+    # Story 5.9: Optimized to run hourly at minute 14 (just before Council at :15)
+    # Only needed for Council decisions, not for Position Manager
     scheduler.add_job(
         run_onchain_ingestion,
-        CronTrigger(minute=config.scheduler.ingest_cron_minutes),
+        CronTrigger(minute="14"),
         id="onchain_ingest",
-        name="On-Chain Data Ingestion",
+        name="On-Chain Data Ingestion (Hourly)",
         replace_existing=True,
         max_instances=1,  # Prevent overlapping executions
     )
 
     onchain_logger.info(
-        f"Scheduler configured with On-Chain ingestion at minutes: {config.scheduler.ingest_cron_minutes}"
+        "Scheduler configured with On-Chain ingestion at minute: 14 (hourly - before Council)"
     )
 
     # Add the Position check job (Story 3.3)
