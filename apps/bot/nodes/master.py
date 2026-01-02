@@ -249,10 +249,12 @@ def master_node(state: GraphState) -> Dict[str, Any]:
         "timestamp": datetime.now(timezone.utc)
     }
 
+    # Get regime from state (may be None)
+    regime_str = regime.get("regime", "UNKNOWN") if regime else "UNKNOWN"
     logger.info(
         f"[MasterNode] Final Decision: {final_decision['action']} "
         f"(Confidence: {final_decision['confidence']}%) "
-        f"[Regime: {regime_analysis_dict['regime']}]"
+        f"[Regime: {regime_str}]"
     )
 
     # Build multi-factor analysis state (Story 5.3)
