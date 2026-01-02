@@ -484,18 +484,12 @@ class TradingDashboard:
     async def get_risk_status(self) -> dict:
         """Get real portfolio risk status from Kraken and database"""
         try:
-            from services.kraken import get_kraken_client
-            from config import get_config
-
-            config = get_config()
-
-            # Get trading enabled status
-            trading_enabled = config.trading.enabled
-
             # Get open positions from database
             open_positions = 0
             total_invested = 0
             unrealized_pnl = 0
+            trading_enabled = False
+            today_pnl = 0
 
             if self.db_pool:
                 async with self.db_pool.acquire() as conn:
@@ -526,6 +520,14 @@ class TradingDashboard:
                         WHERE "exitTime" > $1
                     """, today_start)
                     today_pnl = float(daily["pnl"]) if daily and daily["pnl"] else 0
+
+                    # Get trading enabled status from system_config
+                    config_row = await conn.fetchrow("""
+                        SELECT "tradingEnabled" FROM system_config
+                        ORDER BY "updatedAt" DESC LIMIT 1
+                    """)
+                    if config_row:
+                        trading_enabled = bool(config_row["tradingEnabled"])
 
             # Get Fear & Greed index
             fear_greed = None
