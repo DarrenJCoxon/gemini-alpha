@@ -245,6 +245,11 @@ class OnChainConfig:
     stablecoin reserves, and funding rates for deeper market insight.
     """
 
+    # Master enable/disable switch
+    enabled: bool = field(
+        default_factory=lambda: os.getenv("ONCHAIN_ENABLED", "false").lower() == "true"
+    )
+
     # CryptoQuant API (primary provider - best free tier)
     cryptoquant_api_key: Optional[str] = field(
         default_factory=lambda: os.getenv("CRYPTOQUANT_API_KEY")
@@ -282,7 +287,9 @@ class OnChainConfig:
     )  # 0.1% per 8 hours is extreme
 
     def is_configured(self) -> bool:
-        """Check if any on-chain provider is configured."""
+        """Check if on-chain is enabled AND any provider is configured."""
+        if not self.enabled:
+            return False
         return any([
             self.cryptoquant_api_key,
             self.santiment_api_key,

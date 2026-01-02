@@ -2,16 +2,20 @@
 LangGraph State Graph Definition for the Council of AI Agents.
 
 Story 2.1: LangGraph State Machine Setup
+Story 5.9: Token Optimization - Conditional Vision
 
 This module defines and builds the LangGraph state machine that
 orchestrates the AI agents in the trading decision pipeline.
 
-Graph Flow (V1 - Sequential):
-    Start -> SentimentAgent -> TechnicalAgent -> VisionAgent -> MasterNode -> End
+Graph Flow (V2 - Token Optimized):
+    Start -> SentimentAgent -> TechnicalAgent -> [Conditional] -> MasterNode -> End
+                                                      |
+                                               (if potential BUY)
+                                                      v
+                                                VisionAgent
 
-Future Optimization (V2 - Parallel):
-    The three analysis agents (Sentiment, Technical, Vision) are independent
-    and could run in parallel, with MasterNode waiting for all to complete.
+Vision is only called when sentiment + technical suggest a potential BUY,
+reducing token usage by ~90% (Vision sends chart images = 50K tokens each).
 
 Usage:
     from core.graph import build_council_graph
@@ -22,7 +26,7 @@ Usage:
 """
 
 import logging
-from typing import Any
+from typing import Any, Literal
 
 from langgraph.graph import END, StateGraph
 
@@ -35,21 +39,68 @@ from nodes.vision import vision_node
 logger = logging.getLogger(__name__)
 
 
+def should_run_vision(state: GraphState) -> Literal["vision_agent", "master_node"]:
+    """
+    Router function: Decide whether to run Vision agent.
+
+    Story 5.9: Token Optimization
+
+    Vision analysis is expensive (~50K tokens per chart image).
+    Only run Vision when sentiment + technical suggest a potential BUY:
+    - Fear score < 50 (some level of fear present)
+    - Technical signal is BULLISH or NEUTRAL (not BEARISH)
+
+    This reduces Vision calls from ~240/day to ~20/day, saving ~11M tokens.
+
+    Args:
+        state: Current graph state after sentiment + technical analysis
+
+    Returns:
+        "vision_agent" if Vision should run, "master_node" to skip Vision
+    """
+    sentiment = state.get("sentiment_analysis") or {}
+    technical = state.get("technical_analysis") or {}
+    asset = state.get("asset_symbol", "UNKNOWN")
+
+    fear_score = sentiment.get("fear_score", 50)
+    tech_signal = technical.get("signal", "NEUTRAL")
+
+    # Conditions for running Vision (potential BUY opportunity)
+    has_fear = fear_score < 50  # Some fear present
+    not_bearish = tech_signal != "BEARISH"  # Not actively bearish
+
+    if has_fear and not_bearish:
+        logger.info(
+            f"[Router] {asset}: Running Vision (fear={fear_score}, signal={tech_signal})"
+        )
+        return "vision_agent"
+    else:
+        logger.info(
+            f"[Router] {asset}: Skipping Vision (fear={fear_score}, signal={tech_signal}) - saving tokens"
+        )
+        return "master_node"
+
+
 def build_council_graph() -> Any:
     """
     Build the Council of Agents state graph.
 
-    Constructs a LangGraph StateGraph with all agent nodes and
-    edges defining the execution flow. Currently implements
-    sequential execution for simplicity.
+    Constructs a LangGraph StateGraph with conditional Vision execution
+    to optimize token usage (Story 5.9).
 
     Returns:
         Compiled StateGraph ready for invocation
 
-    Graph Structure:
+    Graph Structure (Token Optimized):
         - Entry: sentiment_agent
-        - Flow: sentiment -> technical -> vision -> master
+        - Flow: sentiment -> technical -> [conditional] -> master
+        - Vision only runs if sentiment + technical suggest potential BUY
         - Exit: END after master_node
+
+    Token Savings:
+        Vision sends ~50K tokens per chart image.
+        By only running Vision on potential BUYs, we reduce from
+        ~240 calls/day to ~20 calls/day, saving ~11M tokens/day.
 
     Example:
         graph = build_council_graph()
@@ -60,7 +111,7 @@ def build_council_graph() -> Any:
             ...
         })
     """
-    logger.info("Building Council of Agents state graph...")
+    logger.info("Building Council of Agents state graph (token-optimized)...")
 
     # Create the state graph with GraphState type
     workflow = StateGraph(GraphState)
@@ -71,13 +122,23 @@ def build_council_graph() -> Any:
     workflow.add_node("vision_agent", vision_node)
     workflow.add_node("master_node", master_node)
 
-    # Define edges (sequential flow for V1)
-    # The entry point is where execution starts
+    # Define edges with conditional Vision execution
     workflow.set_entry_point("sentiment_agent")
 
-    # Connect nodes in sequence
+    # Sentiment -> Technical (always)
     workflow.add_edge("sentiment_agent", "technical_agent")
-    workflow.add_edge("technical_agent", "vision_agent")
+
+    # Technical -> Conditional routing (Vision or skip to Master)
+    workflow.add_conditional_edges(
+        "technical_agent",
+        should_run_vision,
+        {
+            "vision_agent": "vision_agent",
+            "master_node": "master_node",
+        }
+    )
+
+    # Vision -> Master (if Vision ran)
     workflow.add_edge("vision_agent", "master_node")
 
     # Master node exits to END
@@ -86,7 +147,7 @@ def build_council_graph() -> Any:
     # Compile the graph
     compiled_graph = workflow.compile()
 
-    logger.info("Council graph compiled successfully")
+    logger.info("Council graph compiled successfully (Vision conditional)")
 
     return compiled_graph
 

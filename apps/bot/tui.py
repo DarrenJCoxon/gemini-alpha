@@ -245,6 +245,12 @@ class TradingDashboard:
 
     async def get_onchain_data(self) -> dict:
         """Get latest on-chain metrics from database"""
+        # Check if on-chain is enabled
+        from config import get_config
+        config = get_config()
+        if not config.onchain.enabled:
+            return {"available": False, "disabled": True}
+
         if not self.db_pool:
             return {"available": False}
 
@@ -790,6 +796,12 @@ class TradingDashboard:
     def create_onchain_panel(self, data: dict) -> Panel:
         """Create on-chain signals panel"""
         content = Text()
+
+        if data.get("disabled"):
+            content.append("On-chain disabled\n", style="dim")
+            content.append("Set ONCHAIN_ENABLED=true\n", style="dim italic")
+            content.append("Requires paid API", style="dim italic")
+            return Panel(content, title="On-Chain", box=box.ROUNDED)
 
         if not data.get("available"):
             content.append("No on-chain data\n", style="dim")
