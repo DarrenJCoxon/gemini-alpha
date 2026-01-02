@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-ContrarianAI Terminal Dashboard
+Gemini Alpha Terminal Dashboard
 A lightweight TUI for monitoring and testing the trading bot.
 
 Usage: python tui.py
@@ -40,11 +40,12 @@ except ImportError:
 
 
 class TradingDashboard:
-    """Simple TUI Dashboard for ContrarianAI"""
+    """Simple TUI Dashboard for Gemini Alpha"""
 
     def __init__(self):
         self.db_pool: Optional[asyncpg.Pool] = None
         self.running = True
+        self.sessions_expanded = False  # Toggle for expanded reasoning view
 
     async def connect_db(self):
         """Connect to database"""
@@ -117,80 +118,99 @@ class TradingDashboard:
             return []
 
     async def get_assets(self) -> list:
-        """Get all active assets"""
-        if not self.db_pool:
-            return []
-
+        """Get tracked assets from dynamic universe with real prices"""
         try:
-            async with self.db_pool.acquire() as conn:
-                rows = await conn.fetch("""
-                    SELECT * FROM "Asset"
-                    WHERE "isActive" = true
-                    ORDER BY symbol
-                """)
-                return [dict(r) for r in rows]
+            from services.opportunity_scanner import get_opportunity_scanner
+            from services.kraken import get_kraken_client
+
+            # Get dynamic universe (assets we're actually tracking)
+            scanner = get_opportunity_scanner()
+            universe = scanner.get_dynamic_universe()
+
+            # Fallback to top 10 liquid assets if no scanner results yet
+            if not universe:
+                universe = [
+                    "BTCUSD", "ETHUSD", "SOLUSD", "XRPUSD", "ADAUSD",
+                    "AVAXUSD", "DOGEUSD", "LINKUSD", "DOTUSD", "MATICUSD"
+                ]
+
+            # Fetch all tickers in one call (efficient)
+            kraken = get_kraken_client()
+            await kraken.initialize()
+            all_tickers = await kraken.fetch_all_tickers()
+
+            assets = []
+            for symbol in universe:  # Show all tracked assets (up to 10 from scanner)
+                # Convert to Kraken format (BTCUSD -> BTC/USD)
+                kraken_symbol = symbol[:-3] + "/" + symbol[-3:]
+                ticker = all_tickers.get(kraken_symbol)
+                if ticker:
+                    assets.append({
+                        "symbol": symbol,
+                        "lastPrice": ticker.get("last", 0),
+                        "change_24h": ticker.get("percentage", 0),
+                        "volume_24h": ticker.get("quoteVolume", 0),
+                    })
+                else:
+                    assets.append({"symbol": symbol, "lastPrice": None})
+
+            return assets
         except Exception:
             return []
 
     async def get_market_movers(self) -> dict:
-        """Get biggest gainers and losers from recent price data"""
-        if not self.db_pool:
-            return {"gainers": [], "losers": []}
-
+        """Get biggest gainers and losers from tracked universe"""
         try:
-            async with self.db_pool.acquire() as conn:
-                # Get price changes over last 24h for each asset
-                rows = await conn.fetch("""
-                    WITH recent_prices AS (
-                        SELECT
-                            a.symbol,
-                            a."lastPrice" as current_price,
-                            (SELECT c.close FROM "Candle" c
-                             WHERE c."assetId" = a.id
-                             AND c.timestamp < NOW() - INTERVAL '24 hours'
-                             ORDER BY c.timestamp DESC LIMIT 1) as price_24h_ago,
-                            (SELECT c.close FROM "Candle" c
-                             WHERE c."assetId" = a.id
-                             AND c.timestamp < NOW() - INTERVAL '1 hour'
-                             ORDER BY c.timestamp DESC LIMIT 1) as price_1h_ago
-                        FROM "Asset" a
-                        WHERE a."isActive" = true AND a."lastPrice" IS NOT NULL
-                    )
-                    SELECT
-                        symbol,
-                        current_price,
-                        price_24h_ago,
-                        price_1h_ago,
-                        CASE WHEN price_24h_ago > 0
-                            THEN ((current_price - price_24h_ago) / price_24h_ago * 100)
-                            ELSE 0 END as change_24h,
-                        CASE WHEN price_1h_ago > 0
-                            THEN ((current_price - price_1h_ago) / price_1h_ago * 100)
-                            ELSE 0 END as change_1h
-                    FROM recent_prices
-                    WHERE price_24h_ago IS NOT NULL
-                    ORDER BY change_24h DESC
-                """)
+            from services.opportunity_scanner import get_opportunity_scanner
+            from services.kraken import get_kraken_client
 
-                all_movers = [dict(r) for r in rows]
+            # Get dynamic universe
+            scanner = get_opportunity_scanner()
+            universe = scanner.get_dynamic_universe()
 
-                # Top 3 gainers and losers
-                gainers = [m for m in all_movers if m["change_24h"] and float(m["change_24h"]) > 0][:3]
-                losers = [m for m in reversed(all_movers) if m["change_24h"] and float(m["change_24h"]) < 0][:3]
+            # Fallback to top 10 liquid assets if no scanner results yet
+            if not universe:
+                universe = [
+                    "BTCUSD", "ETHUSD", "SOLUSD", "XRPUSD", "ADAUSD",
+                    "AVAXUSD", "DOGEUSD", "LINKUSD", "DOTUSD", "MATICUSD"
+                ]
 
-                # Calculate market average
-                changes = [float(m["change_24h"]) for m in all_movers if m["change_24h"]]
-                avg_change = sum(changes) / len(changes) if changes else 0
+            # Fetch all tickers in one call (efficient)
+            kraken = get_kraken_client()
+            await kraken.initialize()
+            all_tickers = await kraken.fetch_all_tickers()
 
-                return {
-                    "gainers": gainers,
-                    "losers": losers,
-                    "avg_change_24h": avg_change,
-                    "total_assets": len(all_movers),
-                }
+            all_movers = []
+            for symbol in universe:  # Check all tracked assets
+                kraken_symbol = symbol[:-3] + "/" + symbol[-3:]
+                ticker = all_tickers.get(kraken_symbol)
+                if ticker and ticker.get("percentage") is not None:
+                    all_movers.append({
+                        "symbol": symbol,
+                        "current_price": ticker.get("last", 0),
+                        "change_24h": ticker.get("percentage", 0),
+                        "volume": ticker.get("quoteVolume", 0),
+                    })
+
+            # Sort by 24h change
+            all_movers.sort(key=lambda x: x.get("change_24h", 0), reverse=True)
+
+            # Top gainers and losers
+            gainers = [m for m in all_movers if m.get("change_24h", 0) > 0][:3]
+            losers = [m for m in reversed(all_movers) if m.get("change_24h", 0) < 0][:3]
+
+            # Calculate average
+            changes = [m.get("change_24h", 0) for m in all_movers]
+            avg_change = sum(changes) / len(changes) if changes else 0
+
+            return {
+                "gainers": gainers,
+                "losers": losers,
+                "avg_change_24h": avg_change,
+                "total_assets": len(all_movers),
+            }
         except Exception as e:
-            console.print(f"[red]Movers error: {e}[/red]")
-            return {"gainers": [], "losers": [], "avg_change_24h": 0}
+            return {"gainers": [], "losers": [], "avg_change_24h": 0, "error": str(e)}
 
     async def get_sentiment_summary(self) -> dict:
         """Get aggregated sentiment summary from recent data"""
@@ -355,165 +375,192 @@ class TradingDashboard:
         except Exception:
             return {"available": False}
 
-    async def get_technical_indicators(self) -> dict:
-        """Get latest technical analysis from most recent session"""
-        if not self.db_pool:
-            return {"available": False}
-
+    async def get_scanner_results(self) -> dict:
+        """Get latest opportunity scanner results"""
         try:
-            async with self.db_pool.acquire() as conn:
-                # Get most recent session with technical data
-                session = await conn.fetchrow("""
-                    SELECT
-                        "technicalSignal",
-                        "technicalStrength",
-                        "sentimentScore"
-                    FROM "CouncilSession"
-                    ORDER BY timestamp DESC LIMIT 1
-                """)
+            from services.opportunity_scanner import get_opportunity_scanner
 
-                # Get latest candle data for an asset to calculate indicators
-                candle = await conn.fetchrow("""
-                    SELECT a.symbol, a."lastPrice",
-                        (SELECT close FROM "Candle" c WHERE c."assetId" = a.id ORDER BY timestamp DESC LIMIT 1) as close
-                    FROM "Asset" a
-                    WHERE a."isActive" = true AND a.symbol = 'BTCUSD'
-                    LIMIT 1
-                """)
+            scanner = get_opportunity_scanner()
+            result = scanner.get_last_scan_result()
 
-                # Default values
-                result = {
-                    "available": True,
-                    "macd_signal": "NEUTRAL",
-                    "macd_hist": 0,
-                    "bb_signal": "NEUTRAL",
-                    "bb_percent": 0.5,
-                    "bb_squeeze": False,
-                    "obv_signal": "NEUTRAL",
-                    "obv_change": 0,
-                    "adx_value": 25,
-                    "adx_safe": True,
-                    "vwap_signal": "NEUTRAL",
-                    "vwap_dist": 0,
-                    "rsi": 50,
-                    "overall": session["technicalSignal"] if session else "NEUTRAL",
-                    "strength": session["technicalStrength"] if session and session["technicalStrength"] else 50
-                }
+            if not result:
+                return {"available": False, "no_scan": True}
 
-                # If we have extended technical data in session, use it
-                # For now, use placeholder data that will be populated when technical_indicators runs
-                if session:
-                    signal = session.get("technicalSignal", "NEUTRAL")
-                    if signal == "BULLISH":
-                        result["macd_signal"] = "BULLISH"
-                        result["bb_signal"] = "OVERSOLD"
-                        result["rsi"] = 35
-                    elif signal == "BEARISH":
-                        result["macd_signal"] = "BEARISH"
-                        result["bb_signal"] = "OVERBOUGHT"
-                        result["rsi"] = 65
+            # Get top opportunities
+            opportunities = []
+            for opp in result.top_opportunities[:5]:
+                opportunities.append({
+                    "symbol": opp.symbol.replace("/", "").replace("USD", ""),
+                    "score": opp.total_score,
+                    "entry_type": opp.entry_type,
+                    "trend": opp.trend_direction,
+                    "rsi": opp.rsi_value,
+                    "reasoning": opp.reasoning[:50] if opp.reasoning else "",
+                })
 
-                return result
-        except Exception:
-            return {"available": False}
+            return {
+                "available": True,
+                "timestamp": result.timestamp,
+                "total_scanned": result.total_pairs_scanned,
+                "volume_filtered": result.pairs_after_volume_filter,
+                "pairs_scored": result.pairs_scored,
+                "opportunities_found": result.opportunities_found,
+                "uptrends": result.uptrends_found,
+                "downtrends": result.downtrends_found,
+                "sideways": result.sideways_found,
+                "trend_pullbacks": result.trend_pullbacks,
+                "contrarian_extremes": result.contrarian_extremes,
+                "fear_greed": result.fear_greed_index,
+                "duration": result.scan_duration_seconds,
+                "opportunities": opportunities,
+                "universe": scanner.get_dynamic_universe()[:5],
+            }
+        except Exception as e:
+            return {"available": False, "error": str(e)}
+
+    async def get_technical_indicators(self) -> dict:
+        """Get real technical indicators for BTC, ETH, SOL as market reference"""
+        try:
+            from services.kraken import get_kraken_client
+            from services.technical_indicators import analyze_all_indicators
+
+            kraken = get_kraken_client()
+            await kraken.initialize()
+
+            # Reference assets for market overview
+            assets = ["BTC/USD", "ETH/USD", "SOL/USD"]
+            result = {"available": True, "assets": {}}
+
+            for symbol in assets:
+                try:
+                    # Fetch 4h candles (50 candles = ~8 days of data)
+                    candles = await kraken.fetch_ohlcv(symbol, timeframe='4h', limit=50)
+
+                    if not candles or len(candles) < 30:
+                        result["assets"][symbol] = {"error": "Insufficient data"}
+                        continue
+
+                    # Convert to format expected by technical_indicators
+                    candle_dicts = []
+                    for c in candles:
+                        candle_dicts.append({
+                            "timestamp": c.get("timestamp"),
+                            "open": float(c.get("open", 0)),
+                            "high": float(c.get("high", 0)),
+                            "low": float(c.get("low", 0)),
+                            "close": float(c.get("close", 0)),
+                            "volume": float(c.get("volume", 0)),
+                        })
+
+                    # Calculate comprehensive technical analysis
+                    analysis = analyze_all_indicators(candle_dicts)
+
+                    # Get current price
+                    current_price = candle_dicts[-1]["close"]
+
+                    # Store results
+                    result["assets"][symbol] = {
+                        "price": current_price,
+                        "rsi": analysis.rsi,
+                        "adx": analysis.adx.value,
+                        "macd_signal": analysis.macd.signal.value,
+                        "macd_hist": analysis.macd.auxiliary_values.get("histogram", 0),
+                        "bb_percent": analysis.bollinger.value,
+                        "bb_squeeze": analysis.bollinger.auxiliary_values.get("is_squeeze", False),
+                        "overall": analysis.overall_signal.value,
+                        "bullish_count": analysis.bullish_count,
+                        "bearish_count": analysis.bearish_count,
+                        "safe_for_contrarian": analysis.safe_for_contrarian,
+                        "sma_50": analysis.sma_50,
+                        "sma_200": analysis.sma_200,
+                    }
+                except Exception as e:
+                    result["assets"][symbol] = {"error": str(e)[:30]}
+
+            return result
+        except Exception as e:
+            return {"available": False, "error": str(e)}
 
     async def get_risk_status(self) -> dict:
-        """Get current risk status from portfolio and config"""
-        if not self.db_pool:
-            return {"available": False}
-
+        """Get real portfolio risk status from Kraken and database"""
         try:
-            async with self.db_pool.acquire() as conn:
-                # Get system config for limits
-                config = await conn.fetchrow("""
-                    SELECT "maxDrawdownPct", "initialBalance", "tradingEnabled"
-                    FROM system_config
-                    ORDER BY "updatedAt" DESC LIMIT 1
-                """)
+            from services.kraken import get_kraken_client
+            from config import get_config
 
-                # Get latest portfolio snapshot for drawdown
-                snapshot = await conn.fetchrow("""
-                    SELECT "portfolioValue", "peakValue", "drawdownPct"
-                    FROM "PortfolioSnapshot"
-                    ORDER BY timestamp DESC LIMIT 1
-                """)
+            config = get_config()
 
-                # Get open trades for position concentration
-                trades = await conn.fetch("""
-                    SELECT t."entryPrice", t.size, a."lastPrice"
-                    FROM "Trade" t
-                    JOIN "Asset" a ON t."assetId" = a.id
-                    WHERE t.status = 'OPEN'
-                """)
+            # Get trading enabled status
+            trading_enabled = config.trading.enabled
 
-                # Get today's P&L
-                today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
-                daily_pnl = await conn.fetchrow("""
-                    SELECT COALESCE(SUM(pnl), 0) as total_pnl
-                    FROM "Trade"
-                    WHERE "exitTime" > $1
-                """, today_start)
+            # Get open positions from database
+            open_positions = 0
+            total_invested = 0
+            unrealized_pnl = 0
 
-                # Calculate metrics
-                max_dd = float(config["maxDrawdownPct"]) * 100 if config and config["maxDrawdownPct"] else 15
-                initial_bal = float(config["initialBalance"]) if config and config["initialBalance"] else 10000
-                trading_on = config["tradingEnabled"] if config else False
+            if self.db_pool:
+                async with self.db_pool.acquire() as conn:
+                    trades = await conn.fetch("""
+                        SELECT t."entryPrice", t.size, t.side, a."lastPrice", a.symbol
+                        FROM "Trade" t
+                        JOIN "Asset" a ON t."assetId" = a.id
+                        WHERE t.status = 'OPEN'
+                    """)
 
-                current_dd = float(snapshot["drawdownPct"]) if snapshot and snapshot["drawdownPct"] else 0
-                portfolio_val = float(snapshot["portfolioValue"]) if snapshot and snapshot["portfolioValue"] else initial_bal
-
-                # Position concentration
-                largest_pos = 0
-                if trades and portfolio_val > 0:
                     for t in trades:
-                        price = float(t["lastPrice"]) if t["lastPrice"] else float(t["entryPrice"])
+                        open_positions += 1
+                        entry = float(t["entryPrice"]) if t["entryPrice"] else 0
                         size = float(t["size"]) if t["size"] else 0
-                        pos_val = price * size
-                        pos_pct = (pos_val / portfolio_val) * 100
-                        if pos_pct > largest_pos:
-                            largest_pos = pos_pct
+                        current = float(t["lastPrice"]) if t["lastPrice"] else entry
+                        cost = entry * size
+                        total_invested += cost
+                        if t["side"] == "BUY":
+                            unrealized_pnl += (current - entry) * size
+                        else:
+                            unrealized_pnl += (entry - current) * size
 
-                # Daily P&L
-                daily_pnl_val = float(daily_pnl["total_pnl"]) if daily_pnl and daily_pnl["total_pnl"] else 0
-                daily_pnl_pct = (daily_pnl_val / initial_bal) * 100 if initial_bal > 0 else 0
+                    # Get today's realized P&L
+                    today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+                    daily = await conn.fetchrow("""
+                        SELECT COALESCE(SUM(pnl), 0) as pnl
+                        FROM "Trade"
+                        WHERE "exitTime" > $1
+                    """, today_start)
+                    today_pnl = float(daily["pnl"]) if daily and daily["pnl"] else 0
 
-                # Calculate utilizations (as percentage of limit used)
-                dd_util = (current_dd / max_dd) * 100 if max_dd > 0 else 0
-                pos_util = (largest_pos / 10) * 100  # 10% limit
-                daily_util = (abs(daily_pnl_pct) / 5) * 100  # 5% limit
-                corr_util = 30  # Placeholder - would need correlation calculation
+            # Get Fear & Greed index
+            fear_greed = None
+            if self.db_pool:
+                async with self.db_pool.acquire() as conn:
+                    fg = await conn.fetchrow("""
+                        SELECT score FROM sentiment_scores
+                        WHERE score_type = 'fear_greed'
+                        ORDER BY recorded_at DESC LIMIT 1
+                    """)
+                    if fg:
+                        fear_greed = int(fg["score"])
 
-                # Determine risk level
-                max_util = max(dd_util, pos_util, daily_util)
-                if max_util >= 100:
-                    risk_level = "CRITICAL"
-                elif max_util >= 80:
-                    risk_level = "HIGH"
-                elif max_util >= 50:
-                    risk_level = "MODERATE"
-                else:
-                    risk_level = "LOW"
+            # Get scanner status
+            from services.opportunity_scanner import get_opportunity_scanner
+            scanner = get_opportunity_scanner()
+            last_scan = scanner.get_last_scan_result()
+            scan_age_mins = None
+            if last_scan:
+                age = datetime.now(last_scan.timestamp.tzinfo) - last_scan.timestamp
+                scan_age_mins = int(age.total_seconds() / 60)
 
-                return {
-                    "available": True,
-                    "risk_level": risk_level,
-                    "drawdown_pct": current_dd,
-                    "drawdown_limit": max_dd,
-                    "drawdown_util": min(dd_util, 100),
-                    "daily_pnl_pct": daily_pnl_pct,
-                    "daily_limit": 5,
-                    "daily_util": min(daily_util, 100),
-                    "position_pct": largest_pos,
-                    "position_limit": 10,
-                    "position_util": min(pos_util, 100),
-                    "corr_pct": 18,  # Placeholder
-                    "corr_limit": 30,
-                    "corr_util": min(corr_util, 100),
-                    "trading_enabled": trading_on,
-                    "alerts": 0
-                }
-        except Exception:
-            return {"available": False}
+            return {
+                "available": True,
+                "trading_enabled": trading_enabled,
+                "open_positions": open_positions,
+                "total_invested": total_invested,
+                "unrealized_pnl": unrealized_pnl,
+                "today_pnl": today_pnl,
+                "fear_greed": fear_greed,
+                "scan_age_mins": scan_age_mins,
+                "universe_size": len(scanner.get_dynamic_universe()),
+            }
+        except Exception as e:
+            return {"available": False, "error": str(e)}
 
     def create_header(self) -> Panel:
         """Create header panel"""
@@ -521,7 +568,7 @@ class TradingDashboard:
 
         header = Text()
         header.append("◆ ", style="cyan")
-        header.append("ContrarianAI", style="bold cyan")
+        header.append("Gemini Alpha", style="bold cyan")
         header.append(" │ ", style="dim")
         if sandbox_mode:
             header.append("PAPER TRADING", style="yellow bold")
@@ -597,7 +644,7 @@ class TradingDashboard:
 
         return Panel(table, title=f"Sessions ({len(sessions)})", box=box.ROUNDED)
 
-    def create_sessions_panel(self, sessions: list) -> Panel:
+    def create_sessions_panel(self, sessions: list, expanded: bool = False) -> Panel:
         """Create full-width council sessions panel"""
         table = Table(box=box.SIMPLE_HEAD, expand=True, show_edge=False)
         table.add_column("Time", style="dim", width=8)
@@ -606,9 +653,12 @@ class TradingDashboard:
         table.add_column("Fear", justify="center", width=5)
         table.add_column("Technical", width=8)
         table.add_column("Vision", justify="center", width=6)
-        table.add_column("Reasoning", style="dim", ratio=1)
+        table.add_column("Reasoning", style="dim", ratio=1, overflow="fold" if expanded else "ellipsis")
 
-        for s in sessions[:12]:
+        # Show fewer rows if expanded to make room for full text per row
+        max_rows = 4 if expanded else 12
+
+        for s in sessions[:max_rows]:
             timestamp = s.get("timestamp", datetime.now())
             time_str = timestamp.strftime("%H:%M") if isinstance(timestamp, datetime) else str(timestamp)[:5]
 
@@ -626,7 +676,11 @@ class TradingDashboard:
             conf_str = f"{conf}%" if conf is not None else "-"
 
             reasoning_text = s.get("reasoningLog") or s.get("reasoning") or ""
-            reasoning = reasoning_text[:60] + "..." if reasoning_text else "-"
+            # Show full text if expanded, otherwise truncate
+            if expanded:
+                reasoning = reasoning_text if reasoning_text else "-"
+            else:
+                reasoning = reasoning_text[:80] + "..." if len(reasoning_text) > 80 else reasoning_text or "-"
 
             table.add_row(
                 time_str,
@@ -641,7 +695,13 @@ class TradingDashboard:
         if not sessions:
             table.add_row("-", "-", "-", "-", "-", "-", "No council sessions yet")
 
-        return Panel(table, title=f"Council Decisions ({len(sessions)})", box=box.ROUNDED)
+        title = f"Council Decisions ({len(sessions)})"
+        if expanded:
+            title += " [EXPANDED - press 'd' to collapse]"
+        else:
+            title += " [press 'd' for full text]"
+
+        return Panel(table, title=title, box=box.ROUNDED)
 
     def create_trades_table(self, trades: list) -> Panel:
         """Create open trades table"""
@@ -674,72 +734,106 @@ class TradingDashboard:
         return Panel(content, title=f"Trades ({len(trades)})", box=box.ROUNDED)
 
     def create_assets_panel(self, assets: list) -> Panel:
-        """Create assets overview panel - compact grid"""
+        """Create tracked assets panel with prices and 24h change"""
         content = Text()
-
-        # Show assets in a compact 2-column format
-        sorted_assets = sorted(assets, key=lambda x: x.get("symbol", ""))[:30]
-
-        for i, a in enumerate(sorted_assets):
-            symbol = a.get("symbol", "?").replace("USD", "")[:6]
-            price = a.get("lastPrice")
-            price_str = f"${float(price):>7,.2f}" if price else "     -"
-
-            content.append(f"{symbol:<6}", style="cyan")
-            content.append(f"{price_str}", style="dim")
-
-            # New line every 2 assets, or add spacing
-            if i % 2 == 1:
-                content.append("\n")
-            else:
-                content.append("  │  ", style="dim")
 
         if not assets:
-            content.append("No assets", style="dim")
+            content.append("No tracked assets\n", style="dim")
+            content.append("Scanner runs hourly at :10", style="dim italic")
+            return Panel(content, title="Tracked Assets", box=box.ROUNDED)
 
-        return Panel(content, title=f"Assets ({len(assets)})", box=box.ROUNDED)
+        # Header
+        content.append("Asset    Price       24h\n", style="bold dim")
+        content.append("─" * 28 + "\n", style="dim")
+
+        for a in assets[:10]:
+            symbol = a.get("symbol", "?").replace("USD", "")[:6]
+            price = a.get("lastPrice")
+            change = a.get("change_24h", 0)
+
+            # Format price based on magnitude
+            if price:
+                if price >= 1000:
+                    price_str = f"${float(price):>8,.0f}"
+                elif price >= 1:
+                    price_str = f"${float(price):>8,.2f}"
+                else:
+                    price_str = f"${float(price):>8,.4f}"
+            else:
+                price_str = "       -"
+
+            # Change styling
+            if change and change > 0:
+                change_style = "green"
+                change_str = f"+{change:.1f}%"
+            elif change and change < 0:
+                change_style = "red"
+                change_str = f"{change:.1f}%"
+            else:
+                change_style = "dim"
+                change_str = "0.0%"
+
+            content.append(f"{symbol:<6} ", style="cyan bold")
+            content.append(f"{price_str} ", style="white")
+            content.append(f"{change_str:>6}\n", style=change_style)
+
+        return Panel(content, title=f"Tracked Assets ({len(assets)})", box=box.ROUNDED)
 
     def create_movers_panel(self, movers: dict) -> Panel:
-        """Create market movers panel showing gainers/losers"""
+        """Create market movers panel showing gainers/losers with prices"""
         content = Text()
 
-        # Top Gainers
-        content.append("▲ ", style="green bold")
+        # Top Gainers section
+        content.append("▲ TOP GAINERS\n", style="green bold")
         gainers = movers.get("gainers", [])
         if gainers:
-            for i, g in enumerate(gainers[:3]):
+            for g in gainers[:3]:
                 symbol = g.get("symbol", "?").replace("USD", "")[:5]
                 change = float(g.get("change_24h", 0))
-                content.append(f"{symbol}", style="cyan")
-                content.append(f" {change:+.1f}%", style="green")
-                if i < 2:
-                    content.append(" │ ", style="dim")
+                price = g.get("current_price", 0)
+                # Format price
+                if price >= 1000:
+                    price_str = f"${price:,.0f}"
+                elif price >= 1:
+                    price_str = f"${price:.2f}"
+                else:
+                    price_str = f"${price:.4f}"
+                content.append(f"  {symbol:<5} ", style="cyan bold")
+                content.append(f"{price_str:<10} ", style="white")
+                content.append(f"{change:+.1f}%\n", style="green bold")
         else:
-            content.append("No data", style="dim")
+            content.append("  No gainers\n", style="dim")
 
         content.append("\n")
 
-        # Top Losers
-        content.append("▼ ", style="red bold")
+        # Top Losers section
+        content.append("▼ TOP LOSERS\n", style="red bold")
         losers = movers.get("losers", [])
         if losers:
-            for i, l in enumerate(losers[:3]):
+            for l in losers[:3]:
                 symbol = l.get("symbol", "?").replace("USD", "")[:5]
                 change = float(l.get("change_24h", 0))
-                content.append(f"{symbol}", style="cyan")
-                content.append(f" {change:+.1f}%", style="red")
-                if i < 2:
-                    content.append(" │ ", style="dim")
+                price = l.get("current_price", 0)
+                if price >= 1000:
+                    price_str = f"${price:,.0f}"
+                elif price >= 1:
+                    price_str = f"${price:.2f}"
+                else:
+                    price_str = f"${price:.4f}"
+                content.append(f"  {symbol:<5} ", style="cyan bold")
+                content.append(f"{price_str:<10} ", style="white")
+                content.append(f"{change:+.1f}%\n", style="red bold")
         else:
-            content.append("No data", style="dim")
+            content.append("  No losers\n", style="dim")
 
         # Market average
+        content.append("\n")
         avg = movers.get("avg_change_24h", 0)
         total = movers.get("total_assets", 0)
-        avg_style = "green" if avg > 0 else "red" if avg < 0 else "dim"
-        content.append(f"\n\nMarket Avg: ", style="dim")
+        avg_style = "green bold" if avg > 0 else "red bold" if avg < 0 else "dim"
+        content.append("Avg: ", style="dim")
         content.append(f"{avg:+.2f}%", style=avg_style)
-        content.append(f" │ {total} assets", style="dim")
+        content.append(f" ({total} tracked)", style="dim")
 
         return Panel(content, title="24h Movers", box=box.ROUNDED)
 
@@ -857,153 +951,258 @@ class TradingDashboard:
         return Panel(content, title="On-Chain", box=box.ROUNDED)
 
     def create_technical_panel(self, data: dict) -> Panel:
-        """Create technical indicators panel"""
+        """Create technical indicators panel for BTC, ETH, SOL"""
         content = Text()
 
         if not data.get("available"):
-            content.append("No technical data\n", style="dim")
-            content.append("Run council session first", style="dim italic")
-            return Panel(content, title="Technical", box=box.ROUNDED)
+            content.append("Loading market data...\n", style="dim")
+            if data.get("error"):
+                content.append(f"{data['error'][:40]}", style="red dim italic")
+            return Panel(content, title="Market Technical", box=box.ROUNDED)
 
-        # MACD
-        macd_sig = data.get("macd_signal", "NEUTRAL")
-        macd_hist = data.get("macd_hist", 0)
-        macd_style = "green" if macd_sig == "BULLISH" else "red" if macd_sig == "BEARISH" else "dim"
-        macd_icon = "▲" if macd_sig == "BULLISH" else "▼" if macd_sig == "BEARISH" else "●"
-        content.append(f"MACD  {macd_icon} ", style=macd_style)
-        macd_label = "Bull Cross" if macd_sig == "BULLISH" else "Bear Cross" if macd_sig == "BEARISH" else "Neutral"
-        content.append(f"{macd_label:<11}", style=macd_style)
-        content.append(f"{macd_hist:+.2f}\n", style="dim")
+        assets = data.get("assets", {})
+        if not assets:
+            content.append("No market data available", style="dim")
+            return Panel(content, title="Market Technical", box=box.ROUNDED)
 
-        # Bollinger Bands
-        bb_sig = data.get("bb_signal", "NEUTRAL")
-        bb_pct = data.get("bb_percent", 0.5)
-        bb_squeeze = data.get("bb_squeeze", False)
-        bb_style = "green" if bb_sig == "OVERSOLD" else "red" if bb_sig == "OVERBOUGHT" else "dim"
-        bb_icon = "●"
-        content.append(f"BB    {bb_icon} ", style=bb_style)
-        bb_label = "Lower Band" if bb_sig == "OVERSOLD" else "Upper Band" if bb_sig == "OVERBOUGHT" else "Mid Band"
-        content.append(f"{bb_label:<11}", style=bb_style)
-        content.append(f"%B:{bb_pct:.2f}", style="dim")
-        if bb_squeeze:
-            content.append(" SQ", style="yellow bold")
-        content.append("\n")
+        # Header row
+        content.append("Asset   RSI   ADX   Signal      MACD\n", style="bold dim")
+        content.append("─" * 38 + "\n", style="dim")
 
-        # OBV
-        obv_sig = data.get("obv_signal", "NEUTRAL")
-        obv_chg = data.get("obv_change", 0)
-        obv_style = "green" if obv_sig == "ACCUM" else "red" if obv_sig == "DISTRIB" else "dim"
-        obv_icon = "▲" if obv_chg > 0 else "▼" if obv_chg < 0 else "●"
-        content.append(f"OBV   {obv_icon} ", style=obv_style)
-        obv_label = "Accumulate" if obv_sig == "ACCUM" else "Distribute" if obv_sig == "DISTRIB" else "Neutral"
-        content.append(f"{obv_label:<11}", style=obv_style)
-        content.append(f"{obv_chg:+.1f}%\n", style="dim")
+        for symbol, info in assets.items():
+            # Get short name (BTC, ETH, SOL)
+            short = symbol.replace("/USD", "")
 
-        # ADX
-        adx_val = data.get("adx_value", 25)
-        adx_safe = data.get("adx_safe", True)
-        adx_style = "green" if adx_safe else "red"
-        adx_icon = "✓" if adx_safe else "✗"
-        content.append(f"ADX   {adx_icon} ", style=adx_style)
-        content.append(f"{adx_val:.1f}", style=adx_style + " bold")
-        adx_label = " (Safe)" if adx_safe else " (Avoid)"
-        content.append(f"{adx_label}\n", style=adx_style)
+            if info.get("error"):
+                content.append(f"{short:<7} ", style="cyan")
+                content.append(f"Error: {info['error'][:20]}\n", style="red dim")
+                continue
 
-        # RSI with bar
-        rsi = data.get("rsi", 50)
-        rsi_style = "green" if rsi < 30 else "red" if rsi > 70 else "yellow"
-        rsi_label = "OVERSOLD" if rsi < 30 else "OVERBOUGHT" if rsi > 70 else ""
-        bar_len = 10
-        filled = int(rsi / 10)
-        bar = "█" * filled + "░" * (bar_len - filled)
-        content.append(f"RSI   ", style="dim")
-        content.append(f"{rsi:.0f}", style=rsi_style + " bold")
-        content.append(f"  {bar}", style=rsi_style)
-        if rsi_label:
-            content.append(f" {rsi_label}", style=rsi_style)
+            # RSI
+            rsi = info.get("rsi", 50)
+            rsi_style = "green bold" if rsi < 35 else "red bold" if rsi > 65 else "white"
 
-        return Panel(content, title="Technical", box=box.ROUNDED)
+            # ADX
+            adx = info.get("adx", 25)
+            adx_style = "green" if adx < 25 else "yellow" if adx < 40 else "red"
+
+            # Overall signal
+            overall = info.get("overall", "NEUTRAL")
+            if "BULLISH" in overall:
+                sig_style = "green bold"
+                sig_icon = "▲"
+            elif "BEARISH" in overall:
+                sig_style = "red bold"
+                sig_icon = "▼"
+            else:
+                sig_style = "dim"
+                sig_icon = "●"
+
+            # MACD
+            macd_sig = info.get("macd_signal", "NEUTRAL")
+            macd_hist = info.get("macd_hist", 0)
+            macd_icon = "+" if macd_hist > 0 else "-" if macd_hist < 0 else "○"
+            macd_style = "green" if "BULLISH" in macd_sig else "red" if "BEARISH" in macd_sig else "dim"
+
+            # Build row
+            content.append(f"{short:<7} ", style="cyan bold")
+            content.append(f"{rsi:>4.0f}  ", style=rsi_style)
+            content.append(f"{adx:>4.0f}  ", style=adx_style)
+            content.append(f"{sig_icon} ", style=sig_style)
+            # Shorten signal name
+            sig_short = overall.replace("STRONG_", "S_")[:8]
+            content.append(f"{sig_short:<8} ", style=sig_style)
+            content.append(f"{macd_icon}\n", style=macd_style)
+
+        # Summary line
+        content.append("─" * 38 + "\n", style="dim")
+        bullish_count = sum(1 for a in assets.values() if "BULLISH" in a.get("overall", ""))
+        bearish_count = sum(1 for a in assets.values() if "BEARISH" in a.get("overall", ""))
+        content.append("Market: ", style="dim")
+        if bullish_count > bearish_count:
+            content.append("BULLISH ", style="green bold")
+        elif bearish_count > bullish_count:
+            content.append("BEARISH ", style="red bold")
+        else:
+            content.append("MIXED ", style="yellow")
+        content.append(f"({bullish_count}▲ {bearish_count}▼)", style="dim")
+
+        return Panel(content, title="Market Technical", box=box.ROUNDED)
 
     def create_risk_panel(self, data: dict) -> Panel:
-        """Create risk status panel"""
+        """Create portfolio status panel with real data"""
         content = Text()
 
         if not data.get("available"):
-            content.append("No risk data\n", style="dim")
-            content.append("Configure risk settings", style="dim italic")
-            return Panel(content, title="Risk", box=box.ROUNDED)
+            content.append("Loading...\n", style="dim")
+            if data.get("error"):
+                content.append(f"{data['error'][:30]}", style="red dim")
+            return Panel(content, title="Portfolio", box=box.ROUNDED)
 
-        # Risk level header
-        risk_level = data.get("risk_level", "LOW")
-        level_style = {
-            "LOW": "green bold",
-            "MODERATE": "yellow bold",
-            "HIGH": "red bold",
-            "CRITICAL": "red bold reverse"
-        }.get(risk_level, "dim")
-        content.append("      ● ", style=level_style)
-        content.append(f"{risk_level} RISK\n", style=level_style)
-        content.append("─" * 28 + "\n", style="dim")
-
-        def make_bar(util: float, label: str, current: float, limit: float) -> None:
-            bar_len = 10
-            filled = int(util / 10)
-            bar = "█" * filled + "░" * (bar_len - filled)
-            bar_style = "green" if util < 50 else "yellow" if util < 80 else "red"
-            content.append(f"{label:<8}", style="dim")
-            content.append(f"{current:.1f}/{limit:.0f}%", style="white")
-            content.append(f" {bar}", style=bar_style)
-            content.append(f" {util:.0f}%\n", style=bar_style)
-
-        # Drawdown
-        make_bar(
-            data.get("drawdown_util", 0),
-            "Drawdown",
-            data.get("drawdown_pct", 0),
-            data.get("drawdown_limit", 15)
-        )
-
-        # Daily P&L
-        make_bar(
-            data.get("daily_util", 0),
-            "Daily",
-            abs(data.get("daily_pnl_pct", 0)),
-            data.get("daily_limit", 5)
-        )
-
-        # Position concentration
-        make_bar(
-            data.get("position_util", 0),
-            "Position",
-            data.get("position_pct", 0),
-            data.get("position_limit", 10)
-        )
-
-        # Correlation
-        make_bar(
-            data.get("corr_util", 0),
-            "Correl.",
-            data.get("corr_pct", 0),
-            data.get("corr_limit", 30)
-        )
-
-        # Footer
-        content.append("─" * 28 + "\n", style="dim")
-        trading = data.get("trading_enabled", False)
-        alerts = data.get("alerts", 0)
+        # Trading status
+        trading_on = data.get("trading_enabled", False)
+        status_style = "green bold" if trading_on else "yellow bold"
+        status_text = "LIVE" if trading_on else "PAUSED"
         content.append("Trading: ", style="dim")
-        content.append("ON " if trading else "OFF", style="green bold" if trading else "red")
-        content.append(f"         Alerts: ", style="dim")
-        alert_style = "red bold" if alerts > 0 else "dim"
-        content.append(f"{alerts}", style=alert_style)
+        content.append(f"{status_text}\n", style=status_style)
+        content.append("─" * 28 + "\n", style="dim")
 
-        return Panel(content, title="Risk", box=box.ROUNDED)
+        # Open positions
+        positions = data.get("open_positions", 0)
+        invested = data.get("total_invested", 0)
+        content.append("Positions: ", style="dim")
+        content.append(f"{positions}", style="cyan bold")
+        if invested > 0:
+            content.append(f"  (${invested:,.0f})\n", style="dim")
+        else:
+            content.append("\n")
+
+        # Unrealized P&L
+        unrealized = data.get("unrealized_pnl", 0)
+        pnl_style = "green bold" if unrealized >= 0 else "red bold"
+        content.append("Unrealized: ", style="dim")
+        content.append(f"${unrealized:+,.2f}\n", style=pnl_style)
+
+        # Today's P&L
+        today = data.get("today_pnl", 0)
+        today_style = "green" if today >= 0 else "red"
+        content.append("Today P&L:  ", style="dim")
+        content.append(f"${today:+,.2f}\n", style=today_style)
+
+        content.append("─" * 28 + "\n", style="dim")
+
+        # Fear & Greed
+        fg = data.get("fear_greed")
+        if fg is not None:
+            if fg < 25:
+                fg_style = "green bold"
+                fg_label = "Extreme Fear"
+            elif fg < 45:
+                fg_style = "green"
+                fg_label = "Fear"
+            elif fg < 55:
+                fg_style = "yellow"
+                fg_label = "Neutral"
+            elif fg < 75:
+                fg_style = "red"
+                fg_label = "Greed"
+            else:
+                fg_style = "red bold"
+                fg_label = "Extreme Greed"
+            content.append("Fear/Greed: ", style="dim")
+            content.append(f"{fg}", style=fg_style)
+            content.append(f" ({fg_label})\n", style=fg_style)
+        else:
+            content.append("Fear/Greed: ", style="dim")
+            content.append("-\n", style="dim")
+
+        # Scanner status
+        scan_age = data.get("scan_age_mins")
+        universe = data.get("universe_size", 0)
+        content.append("Scanner:    ", style="dim")
+        if scan_age is not None:
+            age_style = "green" if scan_age < 70 else "yellow" if scan_age < 120 else "red"
+            content.append(f"{scan_age}m ago", style=age_style)
+            content.append(f" ({universe} assets)\n", style="dim")
+        else:
+            content.append("Not run yet\n", style="yellow")
+
+        return Panel(content, title="Portfolio", box=box.ROUNDED)
+
+    def create_scanner_panel(self, data: dict) -> Panel:
+        """Create opportunity scanner panel showing trend analysis"""
+        content = Text()
+
+        if data.get("no_scan"):
+            content.append("No scan yet\n", style="dim")
+            content.append("Scanner runs hourly at :10", style="dim italic")
+            return Panel(content, title="Scanner", box=box.ROUNDED)
+
+        if not data.get("available"):
+            content.append("Scanner unavailable\n", style="dim")
+            if data.get("error"):
+                content.append(f"{data['error'][:30]}", style="dim italic")
+            return Panel(content, title="Scanner", box=box.ROUNDED)
+
+        # Market structure summary
+        uptrends = data.get("uptrends", 0)
+        downtrends = data.get("downtrends", 0)
+        sideways = data.get("sideways", 0)
+        total = uptrends + downtrends + sideways
+
+        content.append("MARKET STRUCTURE\n", style="bold")
+        content.append(f"  Uptrends:   ", style="dim")
+        content.append(f"{uptrends:>3}", style="green bold")
+        up_pct = uptrends*100//total if total else 0
+        content.append(f"  ({up_pct}%)\n", style="dim")
+        content.append(f"  Downtrends: ", style="dim")
+        content.append(f"{downtrends:>3}", style="red bold")
+        down_pct = downtrends*100//total if total else 0
+        content.append(f"  ({down_pct}%)\n", style="dim")
+        content.append(f"  Sideways:   ", style="dim")
+        content.append(f"{sideways:>3}", style="yellow bold")
+        side_pct = sideways*100//total if total else 0
+        content.append(f"  ({side_pct}%)\n", style="dim")
+
+        content.append("-" * 26 + "\n", style="dim")
+
+        # Opportunities found
+        pullbacks = data.get("trend_pullbacks", 0)
+        extremes = data.get("contrarian_extremes", 0)
+        content.append("OPPORTUNITIES\n", style="bold")
+        content.append(f"  Trend Pullbacks:  ", style="dim")
+        content.append(f"{pullbacks}\n", style="green bold" if pullbacks else "dim")
+        content.append(f"  Contrarian Ext:   ", style="dim")
+        content.append(f"{extremes}\n", style="cyan bold" if extremes else "dim")
+
+        # Fear & Greed
+        fg = data.get("fear_greed")
+        if fg is not None:
+            fg_style = "green" if fg < 30 else "red" if fg > 70 else "yellow"
+            content.append(f"  Fear & Greed:     ", style="dim")
+            content.append(f"{fg}\n", style=fg_style + " bold")
+
+        content.append("-" * 26 + "\n", style="dim")
+
+        # Top opportunities
+        opportunities = data.get("opportunities", [])
+        if opportunities:
+            content.append("TOP PICKS\n", style="bold")
+            for opp in opportunities[:4]:
+                icon = "+" if opp["entry_type"] == "TREND_PULLBACK" else "*"
+                trend_icon = "^" if opp["trend"] == "UPTREND" else "v" if opp["trend"] == "DOWNTREND" else "-"
+                trend_style = "green" if opp["trend"] == "UPTREND" else "red" if opp["trend"] == "DOWNTREND" else "dim"
+
+                content.append(f"  {icon} ", style="dim")
+                content.append(f"{opp['symbol']:<6}", style="cyan")
+                content.append(f" {opp['score']:>3.0f}", style="white bold")
+                content.append(f" {trend_icon}", style=trend_style)
+                if opp.get("rsi"):
+                    rsi_style = "green" if 40 <= opp["rsi"] <= 55 else "yellow" if opp["rsi"] < 30 else "dim"
+                    content.append(f" R:{opp['rsi']:.0f}", style=rsi_style)
+                content.append("\n")
+        else:
+            content.append("No opportunities\n", style="dim")
+            if uptrends == 0:
+                content.append("  (No uptrends)\n", style="dim italic")
+
+        # Scan info
+        content.append("-" * 26 + "\n", style="dim")
+        scanned = data.get("total_scanned", 0)
+        scored = data.get("pairs_scored", 0)
+        duration = data.get("duration", 0)
+        content.append(f"{scanned} scanned, {scored} scored ({duration:.0f}s)", style="dim")
+
+        return Panel(content, title="Scanner (5.11)", box=box.ROUNDED)
 
     def create_help_panel(self) -> Text:
         """Create help bar"""
         help_text = Text()
         help_text.append(" r", style="cyan bold")
         help_text.append(" refresh ", style="dim")
+        help_text.append("│", style="dim")
+        help_text.append(" d", style="cyan bold")
+        help_text.append(" details ", style="dim")
         help_text.append("│", style="dim")
         help_text.append(" t", style="cyan bold")
         help_text.append(" test ", style="dim")
@@ -1017,7 +1216,7 @@ class TradingDashboard:
         help_text.append(" auto-refresh 30s", style="dim italic")
         return help_text
 
-    def create_layout(self) -> Layout:
+    def create_layout(self, sessions_expanded: bool = False) -> Layout:
         """Create the full-screen layout structure"""
         layout = Layout()
 
@@ -1029,11 +1228,19 @@ class TradingDashboard:
         )
 
         # Body: grid on top, metrics row, sessions full-width at bottom
-        layout["body"].split_column(
-            Layout(name="grid", ratio=2),
-            Layout(name="metrics", ratio=1),
-            Layout(name="sessions", ratio=1),
-        )
+        # When sessions expanded, give it more vertical space
+        if sessions_expanded:
+            layout["body"].split_column(
+                Layout(name="grid", ratio=1),
+                Layout(name="metrics", size=8),  # Fixed small size
+                Layout(name="sessions", ratio=3),  # Much larger for expanded text
+            )
+        else:
+            layout["body"].split_column(
+                Layout(name="grid", ratio=2),
+                Layout(name="metrics", ratio=1),
+                Layout(name="sessions", ratio=1),
+            )
 
         # Grid splits into two rows
         layout["grid"].split_column(
@@ -1054,9 +1261,9 @@ class TradingDashboard:
             Layout(name="assets", ratio=1),
         )
 
-        # Metrics row: On-Chain | Technical | Risk
+        # Metrics row: Scanner | Technical | Risk
         layout["metrics"].split_row(
-            Layout(name="onchain", ratio=1),
+            Layout(name="scanner", ratio=1),
             Layout(name="technical", ratio=1),
             Layout(name="risk", ratio=1),
         )
@@ -1075,12 +1282,12 @@ class TradingDashboard:
         assets = await self.get_assets()
         sentiment = await self.get_sentiment_summary()
         movers = await self.get_market_movers()
-        onchain = await self.get_onchain_data()
         technical = await self.get_technical_indicators()
         risk = await self.get_risk_status()
+        scanner = await self.get_scanner_results()
 
-        # Create layout
-        layout = self.create_layout()
+        # Create layout (pass expanded state to adjust panel sizes)
+        layout = self.create_layout(sessions_expanded=self.sessions_expanded)
 
         # Populate layout sections
         layout["header"].update(self.create_header())
@@ -1090,12 +1297,12 @@ class TradingDashboard:
         layout["movers"].update(self.create_movers_panel(movers))
         layout["assets"].update(self.create_assets_panel(assets))
 
-        # New metrics row
-        layout["onchain"].update(self.create_onchain_panel(onchain))
+        # Metrics row
+        layout["scanner"].update(self.create_scanner_panel(scanner))
         layout["technical"].update(self.create_technical_panel(technical))
         layout["risk"].update(self.create_risk_panel(risk))
 
-        layout["sessions"].update(self.create_sessions_panel(sessions))
+        layout["sessions"].update(self.create_sessions_panel(sessions, expanded=self.sessions_expanded))
         layout["footer"].update(
             Panel(Align.center(self.create_help_panel()), box=box.ROUNDED, style="dim")
         )
@@ -1189,6 +1396,11 @@ class TradingDashboard:
                     elif cmd == "c":
                         console.print("[yellow]Council cycle runs automatically every 15 minutes[/yellow]")
                         await asyncio.sleep(2)
+                    elif cmd == "d":
+                        self.sessions_expanded = not self.sessions_expanded
+                        state = "expanded" if self.sessions_expanded else "collapsed"
+                        console.print(f"[cyan]Council decisions view: {state}[/cyan]")
+                        await asyncio.sleep(1)
 
                 except KeyboardInterrupt:
                     self.running = False

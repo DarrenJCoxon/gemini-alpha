@@ -875,6 +875,119 @@ class ScaleConfig:
 
 
 @dataclass
+class TrendConfig:
+    """
+    Trend-Confirmed Pullback Trading configuration (Story 5.11).
+
+    Controls the trend detection and pullback identification parameters
+    for the revised trading strategy that prioritizes:
+    - Buying pullbacks in confirmed uptrends (primary)
+    - Extreme contrarian plays (secondary, smaller positions)
+
+    Key insight: "Buy the dip" only works in confirmed uptrends.
+    RSI 40-50 in uptrend is the prime buy zone (not extreme 30).
+    """
+
+    # =============================================================================
+    # TREND DETECTION
+    # =============================================================================
+
+    # EMA periods for trend identification
+    ema_fast: int = field(
+        default_factory=lambda: int(os.getenv("TREND_EMA_FAST", "20"))
+    )
+    ema_slow: int = field(
+        default_factory=lambda: int(os.getenv("TREND_EMA_SLOW", "50"))
+    )
+
+    # ADX threshold for trending vs ranging market
+    adx_trend_threshold: float = field(
+        default_factory=lambda: float(os.getenv("TREND_ADX_THRESHOLD", "25.0"))
+    )
+
+    # Swing point detection lookback (candles on each side)
+    swing_lookback: int = field(
+        default_factory=lambda: int(os.getenv("TREND_SWING_LOOKBACK", "5"))
+    )
+
+    # =============================================================================
+    # PULLBACK DETECTION
+    # =============================================================================
+
+    # RSI pullback zone for uptrend entries
+    pullback_rsi_min: float = field(
+        default_factory=lambda: float(os.getenv("TREND_PULLBACK_RSI_MIN", "40.0"))
+    )
+    pullback_rsi_max: float = field(
+        default_factory=lambda: float(os.getenv("TREND_PULLBACK_RSI_MAX", "55.0"))
+    )
+
+    # Pullback depth thresholds (% from recent high)
+    min_pullback_depth: float = field(
+        default_factory=lambda: float(os.getenv("TREND_MIN_PULLBACK_DEPTH", "3.0"))
+    )
+    max_pullback_depth: float = field(
+        default_factory=lambda: float(os.getenv("TREND_MAX_PULLBACK_DEPTH", "15.0"))
+    )
+
+    # Price distance from EMA to consider "at support" (%)
+    ema_support_threshold: float = field(
+        default_factory=lambda: float(os.getenv("TREND_EMA_SUPPORT_PCT", "3.0"))
+    )
+
+    # Volume decline threshold to confirm healthy pullback (ratio)
+    volume_decline_threshold: float = field(
+        default_factory=lambda: float(os.getenv("TREND_VOLUME_DECLINE", "0.8"))
+    )
+
+    # =============================================================================
+    # ENTRY WEIGHTING
+    # =============================================================================
+
+    # Strategy weights (should sum to 1.0)
+    trend_weight: float = field(
+        default_factory=lambda: float(os.getenv("TREND_STRATEGY_WEIGHT", "0.6"))
+    )  # 60% trend-following
+    contrarian_weight: float = field(
+        default_factory=lambda: float(os.getenv("CONTRARIAN_STRATEGY_WEIGHT", "0.4"))
+    )  # 40% contrarian
+
+    # =============================================================================
+    # EXTREME CONTRARIAN FALLBACK
+    # =============================================================================
+
+    # Only trigger contrarian at extreme levels
+    extreme_fear_threshold: int = field(
+        default_factory=lambda: int(os.getenv("TREND_EXTREME_FEAR", "25"))
+    )
+    extreme_rsi_threshold: float = field(
+        default_factory=lambda: float(os.getenv("TREND_EXTREME_RSI", "30.0"))
+    )
+
+    # Position size reduction for contrarian trades (multiplier)
+    contrarian_size_mult: float = field(
+        default_factory=lambda: float(os.getenv("TREND_CONTRARIAN_SIZE_MULT", "0.5"))
+    )  # Half size for contrarian
+
+    def validate(self) -> None:
+        """Validate trend configuration values."""
+        if self.ema_fast >= self.ema_slow:
+            raise ValueError(f"ema_fast ({self.ema_fast}) must be < ema_slow ({self.ema_slow})")
+
+        if not (10 <= self.adx_trend_threshold <= 40):
+            raise ValueError(f"adx_trend_threshold must be 10-40, got {self.adx_trend_threshold}")
+
+        if not (30 <= self.pullback_rsi_min < self.pullback_rsi_max <= 60):
+            raise ValueError(f"Invalid RSI pullback range: {self.pullback_rsi_min}-{self.pullback_rsi_max}")
+
+        if self.min_pullback_depth >= self.max_pullback_depth:
+            raise ValueError(f"min_pullback_depth must be < max_pullback_depth")
+
+        if not (10 <= self.extreme_fear_threshold <= 35):
+            raise ValueError(f"extreme_fear_threshold must be 10-35, got {self.extreme_fear_threshold}")
+
+
+@dataclass
 class Config:
     """Main application configuration."""
 
@@ -891,6 +1004,7 @@ class Config:
     scanner: ScannerConfig = field(default_factory=ScannerConfig)
     multi_factor: MultiFactorConfig = field(default_factory=MultiFactorConfig)
     basket: BasketConfig = field(default_factory=BasketConfig)
+    trend: TrendConfig = field(default_factory=TrendConfig)
     web_url: str = field(default_factory=lambda: os.getenv("WEB_URL", ""))
     debug: bool = field(
         default_factory=lambda: os.getenv("DEBUG", "").lower() == "true"
