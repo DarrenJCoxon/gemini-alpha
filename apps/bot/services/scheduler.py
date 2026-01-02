@@ -569,6 +569,7 @@ async def run_council_cycle() -> dict[str, Any]:
         can_open_new_position,
         get_position_count,
         initialize_basket_manager,
+        calculate_dynamic_position_size,
     )
     from services.reversal_detector import (
         detect_bullish_reversal,
@@ -610,11 +611,24 @@ async def run_council_cycle() -> dict[str, Any]:
         "orders_blocked": 0,
         "basket_full_blocks": 0,
         "reversal_not_confirmed": 0,
+        "insufficient_funds": 0,
         "errors": [],
     }
 
-    # Default position size in USD (can be configured)
-    default_position_size_usd = 100.0
+    # Story 5.10: Calculate dynamic position size based on portfolio value
+    position_size_usd, size_reasoning = await calculate_dynamic_position_size(
+        execution_client=exec_client,
+    )
+
+    if position_size_usd <= 0:
+        council_logger.warning(f"[Cycle] {size_reasoning}")
+        stats["skipped_reason"] = size_reasoning
+        end_time = datetime.now(timezone.utc)
+        stats["end_time"] = end_time.isoformat()
+        stats["duration_seconds"] = (end_time - start_time).total_seconds()
+        return stats
+
+    council_logger.info(f"[Cycle] Position size: {size_reasoning}")
 
     # SAFETY CHECK 1 (Story 3.4): Is trading enabled?
     try:
@@ -780,14 +794,15 @@ async def run_council_cycle() -> dict[str, Any]:
                         stop_loss_price = decision.get("stop_loss_price")
 
                         # Execute buy order via execution service
+                        # Story 5.10: Use dynamic position size
                         council_logger.info(
                             f"[Cycle] Executing BUY for {asset.symbol} "
-                            f"(${default_position_size_usd:.2f} USD)..."
+                            f"(${position_size_usd:.2f} USD)..."
                         )
 
                         success, error, trade = await execute_buy(
                             symbol=asset.symbol,
-                            amount_usd=default_position_size_usd,
+                            amount_usd=position_size_usd,
                             stop_loss_price=stop_loss_price,
                             client=exec_client,
                             session=session,

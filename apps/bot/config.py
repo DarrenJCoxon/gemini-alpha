@@ -712,6 +712,31 @@ class BasketConfig:
         default_factory=lambda: int(os.getenv("BASKET_EXHAUSTION_PERIODS", "3"))
     )
 
+    # =============================================================================
+    # DYNAMIC POSITION SIZING (Story 5.10)
+    # =============================================================================
+    # Position sizes scale with portfolio value
+
+    # Default position size as % of portfolio (e.g., 8% = $800 on $10K portfolio)
+    position_size_pct: float = field(
+        default_factory=lambda: float(os.getenv("BASKET_POSITION_SIZE_PCT", "8.0"))
+    )
+
+    # Minimum position size in USD (avoid dust trades)
+    min_position_usd: float = field(
+        default_factory=lambda: float(os.getenv("BASKET_MIN_POSITION_USD", "50.0"))
+    )
+
+    # Maximum position size in USD (risk limit, even for large portfolios)
+    max_position_usd: float = field(
+        default_factory=lambda: float(os.getenv("BASKET_MAX_POSITION_USD", "5000.0"))
+    )
+
+    # Include open position value in portfolio calculation
+    include_open_positions: bool = field(
+        default_factory=lambda: os.getenv("BASKET_INCLUDE_POSITIONS", "true").lower() == "true"
+    )
+
     def validate(self) -> None:
         """Validate basket configuration values."""
         if not (1 <= self.max_positions <= 20):
@@ -726,6 +751,13 @@ class BasketConfig:
             raise ValueError(f"fear_threshold_buy must be 10-50")
         if not (50 <= self.greed_threshold_sell <= 90):
             raise ValueError(f"greed_threshold_sell must be 50-90")
+        # Position sizing validation
+        if not (1.0 <= self.position_size_pct <= 25.0):
+            raise ValueError(f"position_size_pct must be 1-25%, got {self.position_size_pct}")
+        if not (10.0 <= self.min_position_usd <= 500.0):
+            raise ValueError(f"min_position_usd must be $10-$500")
+        if self.max_position_usd < self.min_position_usd:
+            raise ValueError(f"max_position_usd must be >= min_position_usd")
 
 
 @dataclass

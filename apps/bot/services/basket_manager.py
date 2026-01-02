@@ -615,3 +615,153 @@ async def get_basket_summary_for_tui() -> Dict[str, Any]:
         "greed_threshold": config.greed_threshold_sell,
         "require_reversal": config.require_macd_confirmation or config.require_higher_low
     }
+
+
+# =============================================================================
+# DYNAMIC POSITION SIZING (Story 5.10)
+# =============================================================================
+
+
+async def get_portfolio_value(
+    execution_client: Any = None,
+    session: Optional[AsyncSession] = None,
+) -> Tuple[float, float, float]:
+    """
+    Calculate total portfolio value (cash + open positions).
+
+    Story 5.10: Dynamic Position Sizing
+
+    Args:
+        execution_client: Kraken execution client for fetching balance
+        session: Optional database session
+
+    Returns:
+        Tuple of (total_value, cash_balance, positions_value)
+    """
+    config = get_config().basket
+
+    # Get USD balance from Kraken
+    cash_balance = 0.0
+    if execution_client:
+        try:
+            balance = await execution_client.get_balance("USD")
+            cash_balance = float(balance)
+        except Exception as e:
+            logger.warning(f"Could not fetch USD balance: {e}")
+            # Use a default for sandbox mode
+            cash_balance = 10000.0
+
+    # Calculate value of open positions
+    positions_value = 0.0
+    if config.include_open_positions:
+        try:
+            close_session = False
+            if session is None:
+                session_maker = get_session_maker()
+                session = session_maker()
+                close_session = True
+
+            try:
+                # Get all open positions
+                statement = select(Trade).where(Trade.status == TradeStatus.OPEN)
+                result = await session.execute(statement)
+                open_trades = list(result.scalars().all())
+
+                for trade in open_trades:
+                    # Use current market value (entry_price * quantity as approximation)
+                    # In production, fetch current prices for accuracy
+                    if trade.entry_price and trade.quantity:
+                        trade_value = float(trade.entry_price) * float(trade.quantity)
+                        positions_value += trade_value
+
+            finally:
+                if close_session:
+                    await session.close()
+
+        except Exception as e:
+            logger.warning(f"Could not calculate positions value: {e}")
+
+    total_value = cash_balance + positions_value
+
+    logger.debug(
+        f"Portfolio value: ${total_value:.2f} "
+        f"(cash: ${cash_balance:.2f}, positions: ${positions_value:.2f})"
+    )
+
+    return total_value, cash_balance, positions_value
+
+
+async def calculate_dynamic_position_size(
+    execution_client: Any = None,
+    session: Optional[AsyncSession] = None,
+) -> Tuple[float, str]:
+    """
+    Calculate dynamic position size based on portfolio value.
+
+    Story 5.10: Dynamic Position Sizing
+
+    Position size = portfolio_value * position_size_pct
+    Clamped to [min_position_usd, max_position_usd]
+
+    Examples (8% position size):
+        - $1,000 portfolio → $80 (but min $50) → $50
+        - $10,000 portfolio → $800
+        - $100,000 portfolio → $8,000 (but max $5,000) → $5,000
+
+    Args:
+        execution_client: Kraken execution client for fetching balance
+        session: Optional database session
+
+    Returns:
+        Tuple of (position_size_usd, reasoning)
+    """
+    config = get_config().basket
+
+    # Get portfolio value
+    total_value, cash_balance, positions_value = await get_portfolio_value(
+        execution_client=execution_client,
+        session=session,
+    )
+
+    # Calculate base position size
+    base_size = total_value * (config.position_size_pct / 100.0)
+
+    # Apply min/max limits
+    position_size = max(config.min_position_usd, min(base_size, config.max_position_usd))
+
+    # Check if we have enough cash
+    if position_size > cash_balance:
+        if cash_balance >= config.min_position_usd:
+            # Use available cash
+            position_size = cash_balance
+            reasoning = (
+                f"${position_size:.2f} (limited by available cash ${cash_balance:.2f})"
+            )
+        else:
+            # Not enough cash for minimum position
+            reasoning = (
+                f"Insufficient funds: ${cash_balance:.2f} available, "
+                f"${config.min_position_usd:.2f} minimum required"
+            )
+            return 0.0, reasoning
+    else:
+        # Explain the calculation
+        if position_size == config.min_position_usd:
+            reasoning = (
+                f"${position_size:.2f} (minimum, {config.position_size_pct}% of "
+                f"${total_value:.2f} = ${base_size:.2f})"
+            )
+        elif position_size == config.max_position_usd:
+            reasoning = (
+                f"${position_size:.2f} (capped at max, {config.position_size_pct}% of "
+                f"${total_value:.2f} = ${base_size:.2f})"
+            )
+        else:
+            reasoning = (
+                f"${position_size:.2f} ({config.position_size_pct}% of "
+                f"${total_value:.2f} portfolio)"
+            )
+
+    logger.info(f"Dynamic position size: {reasoning}")
+
+    return position_size, reasoning
