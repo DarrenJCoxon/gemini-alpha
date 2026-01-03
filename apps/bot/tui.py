@@ -529,17 +529,15 @@ class TradingDashboard:
                     if config_row:
                         trading_enabled = bool(config_row["tradingEnabled"])
 
-            # Get Fear & Greed index
+            # Get Fear & Greed index from API
             fear_greed = None
-            if self.db_pool:
-                async with self.db_pool.acquire() as conn:
-                    fg = await conn.fetchrow("""
-                        SELECT score FROM sentiment_scores
-                        WHERE score_type = 'fear_greed'
-                        ORDER BY recorded_at DESC LIMIT 1
-                    """)
-                    if fg:
-                        fear_greed = int(fg["score"])
+            try:
+                from services.fear_greed import fetch_fear_greed_index
+                fg_data = await fetch_fear_greed_index()
+                if fg_data:
+                    fear_greed = fg_data.value
+            except Exception:
+                pass  # Fear & Greed unavailable
 
             # Get scanner status
             from services.opportunity_scanner import get_opportunity_scanner
