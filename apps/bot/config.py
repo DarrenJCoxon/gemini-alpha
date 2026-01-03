@@ -724,8 +724,10 @@ class BasketConfig:
     )  # 7 days
 
     # Enable hourly council (aligned with scanner) vs 15-min
+    # Story 5.12: Default changed to 15-min (false) for crypto responsiveness
+    # Vision agent removed = lower cost per cycle, can afford more frequent meetings
     hourly_council_enabled: bool = field(
-        default_factory=lambda: os.getenv("BASKET_HOURLY_COUNCIL", "true").lower() == "true"
+        default_factory=lambda: os.getenv("BASKET_HOURLY_COUNCIL", "false").lower() == "true"
     )
 
     # =============================================================================
