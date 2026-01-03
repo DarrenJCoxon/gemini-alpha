@@ -33,6 +33,12 @@ from services.factor_checkers import (
     check_vision_validated,
     check_volume_capitulation,
     check_volume_exhaustion,
+    # Story 5.11: NEW Trend-Confirmed Pullback factors
+    check_trend_uptrend,
+    check_rsi_pullback_zone,
+    check_structure_intact,
+    check_price_at_ema,
+    check_fear_confirmation,
 )
 from services.signal_factors import MultiFactorAnalysis
 
@@ -48,18 +54,22 @@ def analyze_buy_factors(
     """
     Analyze all BUY factors and determine if enough are met.
 
-    Evaluates 6 factors for buy signal:
-    1. EXTREME_FEAR: Fear & Greed < 25
-    2. RSI_OVERSOLD: RSI < 30
-    3. PRICE_AT_SUPPORT: Price within 3% of SMA200
-    4. VOLUME_CAPITULATION: Volume > 2x average
+    Story 5.11: REVISED to use TREND-CONFIRMED PULLBACK strategy.
+
+    PRIMARY FACTORS (Trend Pullback - professional approach):
+    1. TREND_UPTREND: Confirmed uptrend (ADX > 20, bullish signal)
+    2. RSI_PULLBACK_ZONE: RSI 40-55 (prime entry zone)
+    3. STRUCTURE_INTACT: Higher Highs/Lows holding
+    4. PRICE_AT_EMA: Near SMA50 support
     5. BULLISH_TECHNICALS: Technical signal bullish
-    6. VISION_VALIDATED: Vision confirms setup
+    6. FEAR_CONFIRMATION: Fear < 50 (not extreme, just confirmation)
+
+    Requires 2+ factors to trigger BUY (lowered from 3 for responsiveness).
 
     Args:
         sentiment_analysis: Output from Sentiment Agent
         technical_analysis: Output from Technical Agent
-        vision_analysis: Output from Vision Agent
+        vision_analysis: Output from Vision Agent (IGNORED - not adding value)
         current_price: Current asset price
 
     Returns:
@@ -69,14 +79,15 @@ def analyze_buy_factors(
     factors_triggered = []
     factors_not_triggered = []
 
-    # Check all buy factors
+    # Story 5.11: NEW Trend-Confirmed Pullback factors
+    # Vision removed - was blocking valid trades with 0 confidence
     all_factors = [
-        check_extreme_fear(sentiment_analysis),
-        check_rsi_oversold(technical_analysis),
-        check_price_at_support(technical_analysis, current_price),
-        check_volume_capitulation(technical_analysis),
+        check_trend_uptrend(technical_analysis),
+        check_rsi_pullback_zone(technical_analysis),
+        check_structure_intact(technical_analysis),
+        check_price_at_ema(technical_analysis, current_price),
         check_bullish_technicals(technical_analysis),
-        check_vision_validated(vision_analysis),
+        check_fear_confirmation(sentiment_analysis),
     ]
 
     # Separate triggered vs not triggered
@@ -131,17 +142,20 @@ def analyze_sell_factors(
     """
     Analyze all SELL factors and determine if enough are met.
 
-    Evaluates 5 factors for sell signal:
-    1. EXTREME_GREED: Fear & Greed > 75
-    2. RSI_OVERBOUGHT: RSI > 70
+    Story 5.11: REVISED for trend-following exits.
+
+    SELL FACTORS:
+    1. EXTREME_GREED: Fear & Greed > 75 (take profits in euphoria)
+    2. RSI_OVERBOUGHT: RSI > 70 (extended, likely to pull back)
     3. PRICE_AT_RESISTANCE: Price extended above SMA200
-    4. VOLUME_EXHAUSTION: Volume declining
-    5. BEARISH_TECHNICALS: Technical signal bearish
+    4. BEARISH_TECHNICALS: Technical signal bearish
+
+    Note: VOLUME_EXHAUSTION removed - was too sensitive and triggering constantly.
 
     Args:
         sentiment_analysis: Output from Sentiment Agent
         technical_analysis: Output from Technical Agent
-        vision_analysis: Output from Vision Agent
+        vision_analysis: Output from Vision Agent (IGNORED)
         current_price: Current asset price
 
     Returns:
@@ -151,12 +165,12 @@ def analyze_sell_factors(
     factors_triggered = []
     factors_not_triggered = []
 
-    # Check all sell factors
+    # Story 5.11: Simplified sell factors
+    # VOLUME_EXHAUSTION removed - too sensitive, was triggering on every session
     all_factors = [
         check_extreme_greed(sentiment_analysis),
         check_rsi_overbought(technical_analysis),
         check_price_at_resistance(technical_analysis, current_price),
-        check_volume_exhaustion(technical_analysis),
         check_bearish_technicals(technical_analysis),
     ]
 

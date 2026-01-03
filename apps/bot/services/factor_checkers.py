@@ -751,3 +751,134 @@ def check_vision_bearish(vision_analysis: Dict[str, Any]) -> FactorResult:
         weight=1.0,
         reasoning=f"Vision bearish: {'yes' if has_bearish else 'no'} (confidence: {confidence})"
     )
+
+
+# =============================================================================
+# Story 5.11: TREND-CONFIRMED PULLBACK FACTORS (NEW PRIMARY STRATEGY)
+# =============================================================================
+
+def check_trend_uptrend(technical_analysis: Dict[str, Any]) -> FactorResult:
+    """
+    Check if market is in confirmed uptrend.
+
+    Uses ADX direction and technical signal to confirm uptrend.
+    ADX > 20 with bullish/neutral signal = uptrend confirmed.
+    """
+    adx_data = technical_analysis.get("adx", {})
+    adx_value = adx_data.get("value", 25) if isinstance(adx_data, dict) else 25
+    trend_direction = adx_data.get("trend_direction", "unknown") if isinstance(adx_data, dict) else "unknown"
+    signal = technical_analysis.get("signal", "NEUTRAL")
+
+    # Uptrend = ADX > 20 AND (signal BULLISH or trend_direction is up)
+    is_uptrend = adx_value >= 20 and (signal == "BULLISH" or trend_direction == "up")
+
+    return FactorResult(
+        factor="TREND_UPTREND",
+        triggered=is_uptrend,
+        value=adx_value,
+        threshold=20,
+        weight=1.5,  # High weight - trend is critical
+        reasoning=f"Trend: {'UPTREND' if is_uptrend else 'NO UPTREND'} (ADX: {adx_value:.1f}, signal: {signal})"
+    )
+
+
+def check_rsi_pullback_zone(technical_analysis: Dict[str, Any]) -> FactorResult:
+    """
+    Check if RSI is in the pullback zone (40-55).
+
+    This is the PRIME entry zone for trend-confirmed pullbacks.
+    NOT the extreme oversold <30 zone from old contrarian strategy.
+    """
+    rsi = technical_analysis.get("rsi", 50)
+
+    # Prime zone: 40-55 (pulled back but not capitulating)
+    in_pullback_zone = 40 <= rsi <= 55
+
+    return FactorResult(
+        factor="RSI_PULLBACK_ZONE",
+        triggered=in_pullback_zone,
+        value=rsi,
+        threshold=40,  # Lower bound
+        weight=1.5,  # High weight - RSI zone is critical
+        reasoning=f"RSI: {rsi:.1f} ({'PULLBACK ZONE' if in_pullback_zone else 'outside zone'})"
+    )
+
+
+def check_structure_intact(technical_analysis: Dict[str, Any]) -> FactorResult:
+    """
+    Check if market structure is intact (Higher Highs/Lows holding).
+
+    Uses ADX trending status as proxy for structure.
+    """
+    adx_data = technical_analysis.get("adx", {})
+    is_trending = adx_data.get("is_trending", False) if isinstance(adx_data, dict) else False
+    adx_value = adx_data.get("value", 25) if isinstance(adx_data, dict) else 25
+    signal = technical_analysis.get("signal", "NEUTRAL")
+
+    # Structure intact if trending and not bearish
+    structure_ok = is_trending and signal != "BEARISH"
+
+    return FactorResult(
+        factor="STRUCTURE_INTACT",
+        triggered=structure_ok,
+        value=1.0 if structure_ok else 0.0,
+        threshold=1.0,
+        weight=1.25,
+        reasoning=f"Structure: {'INTACT' if structure_ok else 'BROKEN'} (trending: {is_trending}, signal: {signal})"
+    )
+
+
+def check_price_at_ema(technical_analysis: Dict[str, Any], current_price: float) -> FactorResult:
+    """
+    Check if price is near EMA support (within 3% of SMA50).
+
+    Good entries happen when price pulls back to moving average support.
+    """
+    sma_50 = technical_analysis.get("sma_50", 0)
+
+    if sma_50 <= 0 or current_price <= 0:
+        return FactorResult(
+            factor="PRICE_AT_EMA",
+            triggered=False,
+            value=0,
+            threshold=3.0,
+            weight=1.0,
+            reasoning="Price/EMA data unavailable"
+        )
+
+    # Calculate distance from SMA50
+    distance_pct = abs((current_price - sma_50) / sma_50) * 100
+
+    # Near EMA = within 3% AND price at or above (not crashed through)
+    at_ema_support = distance_pct <= 3.0 and current_price >= sma_50 * 0.97
+
+    return FactorResult(
+        factor="PRICE_AT_EMA",
+        triggered=at_ema_support,
+        value=distance_pct,
+        threshold=3.0,
+        weight=1.0,
+        reasoning=f"Price vs SMA50: {distance_pct:.1f}% away ({'AT SUPPORT' if at_ema_support else 'not at support'})"
+    )
+
+
+def check_fear_confirmation(sentiment_analysis: Dict[str, Any]) -> FactorResult:
+    """
+    Check if sentiment provides fear confirmation (Fear < 50).
+
+    This is NOT extreme fear (<25) but moderate fear that confirms
+    a pullback is happening. We buy fear, but not panic.
+    """
+    fear_score = sentiment_analysis.get("fear_score", 50)
+
+    # Fear confirmation = score below 50 (neutral)
+    has_fear = fear_score < 50
+
+    return FactorResult(
+        factor="FEAR_CONFIRMATION",
+        triggered=has_fear,
+        value=fear_score,
+        threshold=50,
+        weight=1.0,
+        reasoning=f"Sentiment: Fear {fear_score} ({'FEAR CONFIRMED' if has_fear else 'neutral/greed'})"
+    )

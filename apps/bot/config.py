@@ -575,19 +575,22 @@ def get_gemini_pro_vision_model():
 @dataclass
 class MultiFactorConfig:
     """
-    Multi-Factor Confirmation System configuration (Story 5.3).
+    Multi-Factor Confirmation System configuration (Story 5.3, 5.11).
+
+    Story 5.11: Revised for trend-confirmed pullback trading.
 
     Controls the minimum number of factors required for BUY/SELL signals:
-    - BUY: Requires 3+ of 6 factors (conservative)
-    - SELL: Requires 2+ of 5 factors (protective)
+    - BUY: Requires 2+ of 6 factors (responsive trend-following)
+    - SELL: Requires 2+ of 4 factors (protective)
     """
 
-    # Minimum factors required for BUY signal (default: 3 of 6)
+    # Minimum factors required for BUY signal (default: 2 of 6)
+    # Story 5.11: Lowered from 3 to 2 for more responsive trading
     min_factors_buy: int = field(
-        default_factory=lambda: int(os.getenv("MULTI_FACTOR_MIN_BUY", "3"))
+        default_factory=lambda: int(os.getenv("MULTI_FACTOR_MIN_BUY", "2"))
     )
 
-    # Minimum factors required for SELL signal (default: 2 of 5)
+    # Minimum factors required for SELL signal (default: 2 of 4)
     min_factors_sell: int = field(
         default_factory=lambda: int(os.getenv("MULTI_FACTOR_MIN_SELL", "2"))
     )
@@ -596,8 +599,8 @@ class MultiFactorConfig:
         """Validate multi-factor configuration values."""
         if not (1 <= self.min_factors_buy <= 6):
             raise ValueError(f"min_factors_buy must be 1-6, got {self.min_factors_buy}")
-        if not (1 <= self.min_factors_sell <= 5):
-            raise ValueError(f"min_factors_sell must be 1-5, got {self.min_factors_sell}")
+        if not (1 <= self.min_factors_sell <= 4):
+            raise ValueError(f"min_factors_sell must be 1-4, got {self.min_factors_sell}")
 
 
 @dataclass
@@ -658,21 +661,23 @@ class BasketConfig:
     # BALANCED THRESHOLDS (Not Too Contrarian)
     # =============================================================================
 
-    # Fear & Greed thresholds (relaxed from 25/75 to 40/60)
+    # Fear & Greed thresholds
+    # Story 5.11: Increased fear_threshold to 50 for trend-confirmed pullback entries
     fear_threshold_buy: int = field(
-        default_factory=lambda: int(os.getenv("BASKET_FEAR_BUY", "40"))
-    )  # Was 25 - too extreme
+        default_factory=lambda: int(os.getenv("BASKET_FEAR_BUY", "50"))
+    )  # Buy when fear <= 50 (neutral/fear), not just extreme fear
     greed_threshold_sell: int = field(
-        default_factory=lambda: int(os.getenv("BASKET_GREED_SELL", "60"))
-    )  # Was 75 - too extreme
+        default_factory=lambda: int(os.getenv("BASKET_GREED_SELL", "70"))
+    )  # Sell when greed >= 70
 
-    # RSI thresholds (relaxed from 30/70 to 35/65)
+    # RSI thresholds
+    # Story 5.11: Increased rsi_oversold to 55 to allow pullback zone entries (40-55)
     rsi_oversold: int = field(
-        default_factory=lambda: int(os.getenv("BASKET_RSI_OVERSOLD", "35"))
-    )  # Was 30
+        default_factory=lambda: int(os.getenv("BASKET_RSI_OVERSOLD", "55"))
+    )  # Was 35, now 55 for trend pullback entries
     rsi_overbought: int = field(
-        default_factory=lambda: int(os.getenv("BASKET_RSI_OVERBOUGHT", "65"))
-    )  # Was 70
+        default_factory=lambda: int(os.getenv("BASKET_RSI_OVERBOUGHT", "70"))
+    )  # Standard overbought level
 
     # ADX threshold (increased to allow trending markets)
     adx_max_for_entry: int = field(
@@ -681,21 +686,25 @@ class BasketConfig:
 
     # =============================================================================
     # REVERSAL CONFIRMATION REQUIREMENTS
+    # Story 5.11: Relaxed for trend-confirmed pullback trading
     # =============================================================================
 
     # Require MACD bullish crossover for BUY
+    # Story 5.11: Changed to False - trend confirmation is done via multi-factor
     require_macd_confirmation: bool = field(
-        default_factory=lambda: os.getenv("BASKET_REQUIRE_MACD", "true").lower() == "true"
+        default_factory=lambda: os.getenv("BASKET_REQUIRE_MACD", "false").lower() == "true"
     )
 
     # Require higher-low pattern (price above prior swing low)
+    # Story 5.11: Changed to False - not needed for pullback entries
     require_higher_low: bool = field(
-        default_factory=lambda: os.getenv("BASKET_REQUIRE_HIGHER_LOW", "true").lower() == "true"
+        default_factory=lambda: os.getenv("BASKET_REQUIRE_HIGHER_LOW", "false").lower() == "true"
     )
 
     # Minimum candles since reversal to confirm it's holding
+    # Story 5.11: Reduced from 3 to 1 for faster entries
     reversal_confirmation_candles: int = field(
-        default_factory=lambda: int(os.getenv("BASKET_REVERSAL_CANDLES", "3"))
+        default_factory=lambda: int(os.getenv("BASKET_REVERSAL_CANDLES", "1"))
     )
 
     # =============================================================================
@@ -747,10 +756,11 @@ class BasketConfig:
             raise ValueError(f"max_single_position_pct must be 5-50%")
         if not (0.3 <= self.max_correlation <= 1.0):
             raise ValueError(f"max_correlation must be 0.3-1.0")
-        if not (10 <= self.fear_threshold_buy <= 50):
-            raise ValueError(f"fear_threshold_buy must be 10-50")
-        if not (50 <= self.greed_threshold_sell <= 90):
-            raise ValueError(f"greed_threshold_sell must be 50-90")
+        # Story 5.11: Relaxed thresholds for trend-confirmed pullback trading
+        if not (10 <= self.fear_threshold_buy <= 60):
+            raise ValueError(f"fear_threshold_buy must be 10-60")
+        if not (60 <= self.greed_threshold_sell <= 90):
+            raise ValueError(f"greed_threshold_sell must be 60-90")
         # Position sizing validation
         if not (1.0 <= self.position_size_pct <= 25.0):
             raise ValueError(f"position_size_pct must be 1-25%, got {self.position_size_pct}")

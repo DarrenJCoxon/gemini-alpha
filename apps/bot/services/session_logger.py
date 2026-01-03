@@ -71,6 +71,8 @@ async def log_council_session(
     mf_analysis = state.get("multi_factor_analysis") or {}
 
     # Build technical details JSON
+    # Story 5.11: Include ADX and trend data for debugging
+    adx_data = technical.get("adx", {})
     technical_details = {
         "rsi": technical.get("rsi"),
         "sma_50": technical.get("sma_50"),
@@ -78,6 +80,10 @@ async def log_council_session(
         "volume_delta": technical.get("volume_delta"),
         "reasoning": technical.get("reasoning"),
         "strength": technical.get("strength"),
+        # Story 5.11: ADX and trend data
+        "adx": adx_data.get("value") if isinstance(adx_data, dict) else None,
+        "trend_direction": adx_data.get("trend_direction") if isinstance(adx_data, dict) else None,
+        "is_trending": adx_data.get("is_trending") if isinstance(adx_data, dict) else None,
     }
 
     # Get decision timestamp or use current time (naive UTC for Prisma)

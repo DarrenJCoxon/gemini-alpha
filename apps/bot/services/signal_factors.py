@@ -59,6 +59,13 @@ class BuyFactor(str, Enum):
     ADX_WEAK_TREND = "ADX_WEAK_TREND"
     VWAP_BELOW = "VWAP_BELOW"
 
+    # Story 5.11: Trend-Confirmed Pullback factors (NEW PRIMARY STRATEGY)
+    TREND_UPTREND = "TREND_UPTREND"  # Confirmed uptrend structure
+    RSI_PULLBACK_ZONE = "RSI_PULLBACK_ZONE"  # RSI 40-55 (prime entry)
+    STRUCTURE_INTACT = "STRUCTURE_INTACT"  # Higher Highs/Lows holding
+    PRICE_AT_EMA = "PRICE_AT_EMA"  # Near EMA20/50 support
+    FEAR_CONFIRMATION = "FEAR_CONFIRMATION"  # Fear < 50 (not extreme)
+
 
 class SellFactor(str, Enum):
     """
