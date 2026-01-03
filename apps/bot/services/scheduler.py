@@ -1186,22 +1186,22 @@ def create_scheduler() -> AsyncIOScheduler:
         "Scheduler configured with On-Chain ingestion at minute: 14 (hourly - before Council)"
     )
 
-    # Add the Position check job (Story 3.3)
-    # Runs 3 minutes after ingestion to allow data to be available
-    # MUST run BEFORE Council cycle to protect capital first
-    # e.g., runs at :03, :18, :33, :48
+    # Add the Position check job (Story 3.3, Story 5.12)
+    # Story 5.12: CRITICAL - Reduced from 15 min to 3 min for crypto volatility
+    # Crypto flash crashes happen in seconds/minutes, not hours
+    # Runs every 3 minutes: 0,3,6,9,12,15,18,21,24,27,30,33,36,39,42,45,48,51,54,57
     scheduler.add_job(
         run_position_check,
-        CronTrigger(minute="3,18,33,48"),
+        CronTrigger(minute="*/3"),  # Every 3 minutes
         id="position_check",
-        name="Position Manager Check",
+        name="Position Manager Check (3-min)",
         replace_existing=True,
         max_instances=1,  # Prevent overlapping executions
     )
 
     position_logger.info(
-        "Scheduler configured with Position check at minutes: 3,18,33,48 "
-        "(runs BEFORE Council cycle)"
+        "Scheduler configured with Position check at: */3 minutes "
+        "(every 3 min for crypto volatility protection)"
     )
 
     # Add the Council cycle job (Story 2.4, Story 5.9)

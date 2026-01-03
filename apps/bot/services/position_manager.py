@@ -3,12 +3,15 @@ Position Manager Service for managing open positions.
 
 Story 3.3: Position Manager (Trailing Stops & Exits)
 Story 5.4: Scale In/Out Position Management Integration
+Story 5.12: Enhanced Trailing Stops (Crypto Best Practices)
 
 This module provides position lifecycle management:
-- Monitor open positions every 15 minutes
+- Monitor open positions every 3 minutes (reduced from 15 for crypto volatility)
 - Check and execute stop loss hits
-- Move stops to breakeven after 2*ATR profit
-- Trail stops upward as price rises
+- Move stops to breakeven after 3*ATR profit (increased from 2*ATR)
+- Progressive trailing (tighten stops as profit grows)
+- Asset-tier specific ATR multipliers
+- Time-decay stop tightening for older positions
 - Close positions on Council SELL signals
 - Calculate and log P&L on position close
 - Check and execute scale-in triggers (Story 5.4)
@@ -19,7 +22,7 @@ Position Check Priority Order (CRITICAL):
 2. Council SELL - Take profits on reversal signals
 3. Scale-out Profit Targets - Lock in profits (Story 5.4)
 4. Breakeven Trigger - Lock in entry price
-5. Trailing Stop - Maximize profits
+5. Trailing Stop - Maximize profits (progressive tightening)
 6. Scale-in Triggers - Build position on dips (Story 5.4)
 
 Reference: docs/core/prd.md Section 2.1 FR10
@@ -34,6 +37,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from config import get_config
 from database import get_session_maker
 from models import Trade, TradeStatus, Asset
 from services.kraken import get_kraken_client, KrakenClient
@@ -50,6 +54,7 @@ from services.scale_out_manager import (
     get_scale_out_position_for_trade,
     cancel_scale_out_plan,
 )
+from services.asset_universe import get_asset_tier, AssetTier
 
 # Configure logging
 logger = logging.getLogger("position_manager")
@@ -309,6 +314,171 @@ def check_stop_loss(
 
 
 # =============================================================================
+# Story 5.12: Enhanced Trailing Stop Helpers
+# =============================================================================
+
+def get_tier_atr_multiplier(symbol: str) -> float:
+    """
+    Get ATR multiplier based on asset tier.
+
+    Higher volatility assets get wider initial stops.
+
+    Args:
+        symbol: Asset symbol (e.g., "BTCUSD")
+
+    Returns:
+        ATR multiplier for the asset's tier
+    """
+    config = get_config()
+    tier = get_asset_tier(symbol)
+
+    tier_multipliers = {
+        AssetTier.FLAGSHIP: config.trailing_stop.tier_mult_flagship,
+        AssetTier.BLUE_CHIP: config.trailing_stop.tier_mult_bluechip,
+        AssetTier.MID_CAP: config.trailing_stop.tier_mult_midcap,
+        AssetTier.SPECULATIVE: config.trailing_stop.tier_mult_speculative,
+    }
+
+    multiplier = tier_multipliers.get(tier, config.trailing_stop.tier_mult_bluechip)
+    logger.debug(f"{symbol} tier={tier.value}, ATR multiplier={multiplier}")
+    return multiplier
+
+
+def get_progressive_trail_multiplier(
+    entry_price: float,
+    current_price: float,
+    atr: float,
+) -> float:
+    """
+    Calculate progressive trailing multiplier based on profit level.
+
+    As profit grows, the trailing stop tightens to lock in gains:
+    - 0-1× ATR profit: 2.5× ATR trail (wider, let it run)
+    - 1-2× ATR profit: 2.0× ATR trail
+    - 2-3× ATR profit: 1.75× ATR trail
+    - 3+× ATR profit: 1.5× ATR trail (tighter, lock profits)
+
+    Args:
+        entry_price: Trade entry price
+        current_price: Current market price
+        atr: Current ATR value
+
+    Returns:
+        ATR multiplier for current profit level
+    """
+    config = get_config()
+
+    # Calculate profit in ATR units
+    profit = current_price - entry_price
+    profit_atr_units = profit / atr if atr > 0 else 0
+
+    if profit_atr_units >= 3.0:
+        multiplier = config.trailing_stop.trail_mult_profit_3x
+        level = "3+× ATR (lock profits)"
+    elif profit_atr_units >= 2.0:
+        multiplier = config.trailing_stop.trail_mult_profit_2x
+        level = "2-3× ATR"
+    elif profit_atr_units >= 1.0:
+        multiplier = config.trailing_stop.trail_mult_profit_1x
+        level = "1-2× ATR"
+    else:
+        multiplier = config.trailing_stop.trail_mult_initial
+        level = "0-1× ATR (initial)"
+
+    logger.debug(
+        f"Profit {profit_atr_units:.2f}× ATR -> trail multiplier {multiplier} ({level})"
+    )
+    return multiplier
+
+
+def apply_time_decay(
+    base_multiplier: float,
+    position_age_hours: float,
+) -> float:
+    """
+    Apply time-decay to tighten stops on older positions.
+
+    Positions older than 24h get progressively tighter stops:
+    - Reduces multiplier by 0.1 per 24h beyond threshold
+    - Never goes below minimum (1.25×)
+
+    Args:
+        base_multiplier: Starting ATR multiplier
+        position_age_hours: Age of position in hours
+
+    Returns:
+        Adjusted ATR multiplier after time decay
+    """
+    config = get_config()
+
+    if position_age_hours < config.trailing_stop.time_decay_start_hours:
+        return base_multiplier
+
+    # Calculate decay
+    hours_beyond_threshold = position_age_hours - config.trailing_stop.time_decay_start_hours
+    decay_periods = hours_beyond_threshold / 24.0  # Every 24h
+    decay_amount = decay_periods * config.trailing_stop.time_decay_mult_reduction
+
+    adjusted_multiplier = max(
+        base_multiplier - decay_amount,
+        config.trailing_stop.time_decay_min_mult
+    )
+
+    if adjusted_multiplier < base_multiplier:
+        logger.debug(
+            f"Time decay applied: age={position_age_hours:.1f}h, "
+            f"multiplier {base_multiplier:.2f} -> {adjusted_multiplier:.2f}"
+        )
+
+    return adjusted_multiplier
+
+
+def calculate_effective_trail_multiplier(
+    trade: Trade,
+    symbol: str,
+    current_price: float,
+    atr: float,
+) -> float:
+    """
+    Calculate the final effective trailing multiplier.
+
+    Combines:
+    1. Asset-tier base multiplier
+    2. Progressive tightening based on profit
+    3. Time-decay for older positions
+
+    Args:
+        trade: Trade object
+        symbol: Asset symbol
+        current_price: Current market price
+        atr: Current ATR value
+
+    Returns:
+        Final ATR multiplier to use for trailing stop
+    """
+    entry_price = float(trade.entry_price) if trade.entry_price else 0
+
+    # Start with progressive multiplier based on profit level
+    profit_multiplier = get_progressive_trail_multiplier(entry_price, current_price, atr)
+
+    # Calculate position age
+    position_age_hours = 0.0
+    if trade.entry_time:
+        age_delta = datetime.now(timezone.utc) - trade.entry_time
+        position_age_hours = age_delta.total_seconds() / 3600
+
+    # Apply time decay
+    effective_multiplier = apply_time_decay(profit_multiplier, position_age_hours)
+
+    logger.debug(
+        f"Trade {trade.id[:8]}... effective trail mult: {effective_multiplier:.2f} "
+        f"(profit-based={profit_multiplier:.2f}, age={position_age_hours:.1f}h)"
+    )
+
+    return effective_multiplier
+
+
+# =============================================================================
 # Breakeven Logic
 # =============================================================================
 
@@ -321,7 +491,10 @@ async def check_breakeven_trigger(
     """
     Check if price has moved enough to trigger breakeven stop.
 
-    Trigger: Price > Entry + (2 * ATR)
+    Story 5.12: Trigger increased from 2× to 3× ATR for crypto volatility.
+    Crypto often retraces 2-3× ATR during healthy uptrends.
+
+    Trigger: Price > Entry + (breakeven_atr_trigger * ATR)
     Action: Move stop loss to entry price
 
     Args:
@@ -333,6 +506,7 @@ async def check_breakeven_trigger(
     Returns:
         True if breakeven was triggered, False otherwise
     """
+    config = get_config()
     entry_price = float(trade.entry_price) if trade.entry_price else 0
     current_stop = float(trade.stop_loss_price) if trade.stop_loss_price else 0
 
@@ -340,13 +514,15 @@ async def check_breakeven_trigger(
     if current_stop >= entry_price:
         return False
 
-    # Calculate breakeven trigger level
-    breakeven_trigger = entry_price + (2 * atr)
+    # Story 5.12: Use configurable breakeven trigger (default 3× ATR)
+    breakeven_atr_mult = config.trailing_stop.breakeven_atr_trigger
+    breakeven_trigger = entry_price + (breakeven_atr_mult * atr)
 
     if current_price >= breakeven_trigger:
         logger.info(
             f"BREAKEVEN TRIGGER for trade {trade.id}: "
-            f"Price ${current_price:.4f} >= Trigger ${breakeven_trigger:.4f}"
+            f"Price ${current_price:.4f} >= Trigger ${breakeven_trigger:.4f} "
+            f"({breakeven_atr_mult}× ATR)"
         )
 
         # Update stop to entry price
@@ -369,20 +545,25 @@ async def update_trailing_stop(
     trade: Trade,
     current_price: float,
     atr: float,
-    atr_multiplier: float = 2.0,
+    symbol: str = "",
     session: Optional[AsyncSession] = None,
 ) -> bool:
     """
     Update trailing stop if price has moved higher.
 
-    Trail Logic: New Stop = current_price - (ATR_Multiplier * ATR)
+    Story 5.12: Enhanced with progressive trailing:
+    - Uses dynamic ATR multiplier based on profit level
+    - Tightens stops as profit grows (locks in gains)
+    - Applies time-decay for older positions
+
+    Trail Logic: New Stop = current_price - (effective_multiplier * ATR)
     Only updates if new stop > current stop.
 
     Args:
         trade: Trade object
         current_price: Current market price
         atr: Current ATR value
-        atr_multiplier: Multiplier for ATR distance (default: 2.0)
+        symbol: Asset symbol for tier-based multipliers
         session: Optional database session
 
     Returns:
@@ -395,15 +576,22 @@ async def update_trailing_stop(
     if current_stop < entry_price:
         return False
 
+    # Story 5.12: Calculate effective multiplier with progressive trailing
+    effective_multiplier = calculate_effective_trail_multiplier(
+        trade, symbol, current_price, atr
+    )
+
     # Calculate new potential stop
-    new_stop = current_price - (atr_multiplier * atr)
+    new_stop = current_price - (effective_multiplier * atr)
 
     # Only update if new stop is higher than current
     if new_stop > current_stop:
         improvement = new_stop - current_stop
+        profit_pct = ((current_price - entry_price) / entry_price) * 100
         logger.info(
             f"TRAILING STOP UPDATE for trade {trade.id}: "
-            f"${current_stop:.4f} -> ${new_stop:.4f} (+${improvement:.4f})"
+            f"${current_stop:.4f} -> ${new_stop:.4f} (+${improvement:.4f}) "
+            f"[mult={effective_multiplier:.2f}, profit={profit_pct:+.2f}%]"
         )
 
         success = await update_stop_loss(trade.id, new_stop, session=session)
@@ -730,8 +918,10 @@ async def check_open_positions(
                 if await check_breakeven_trigger(trade, current_price, atr, session=s):
                     summary["breakevens_triggered"] += 1
 
-                # PRIORITY 5: Update trailing stop
-                if await update_trailing_stop(trade, current_price, atr, session=s):
+                # PRIORITY 5: Update trailing stop (Story 5.12: progressive trailing)
+                if await update_trailing_stop(
+                    trade, current_price, atr, symbol=symbol, session=s
+                ):
                     summary["trailing_updates"] += 1
 
             except Exception as e:

@@ -442,6 +442,77 @@ class EnhancedRiskConfig:
 
 
 @dataclass
+class TrailingStopConfig:
+    """
+    Enhanced Trailing Stop configuration (Story 5.12).
+
+    Crypto-optimized trailing stop parameters:
+    - Progressive trailing (tighten as profit grows)
+    - Asset-tier specific multipliers
+    - Time-decay adjustments for older positions
+    - Breakeven trigger at 3× ATR (increased from 2×)
+    """
+
+    # Breakeven trigger: move stop to entry after price rises this many ATRs
+    # Increased from 2.0 to 3.0 for crypto volatility
+    breakeven_atr_trigger: float = field(
+        default_factory=lambda: float(os.getenv("TRAILING_BREAKEVEN_ATR", "3.0"))
+    )
+
+    # Progressive trailing multipliers (tighten as profit grows)
+    # These define ATR multiplier at different profit levels
+    trail_mult_initial: float = field(
+        default_factory=lambda: float(os.getenv("TRAILING_MULT_INITIAL", "2.5"))
+    )  # 0-1× ATR profit
+    trail_mult_profit_1x: float = field(
+        default_factory=lambda: float(os.getenv("TRAILING_MULT_1X", "2.0"))
+    )  # 1-2× ATR profit
+    trail_mult_profit_2x: float = field(
+        default_factory=lambda: float(os.getenv("TRAILING_MULT_2X", "1.75"))
+    )  # 2-3× ATR profit
+    trail_mult_profit_3x: float = field(
+        default_factory=lambda: float(os.getenv("TRAILING_MULT_3X", "1.5"))
+    )  # 3+× ATR profit (lock profits)
+
+    # Asset tier-specific initial ATR multipliers
+    # Higher volatility assets get wider stops
+    tier_mult_flagship: float = field(
+        default_factory=lambda: float(os.getenv("TIER_MULT_FLAGSHIP", "2.0"))
+    )  # BTC, ETH - lower volatility
+    tier_mult_bluechip: float = field(
+        default_factory=lambda: float(os.getenv("TIER_MULT_BLUECHIP", "2.5"))
+    )  # SOL, LINK, etc.
+    tier_mult_midcap: float = field(
+        default_factory=lambda: float(os.getenv("TIER_MULT_MIDCAP", "3.0"))
+    )  # Higher volatility mid-caps
+    tier_mult_speculative: float = field(
+        default_factory=lambda: float(os.getenv("TIER_MULT_SPECULATIVE", "3.5"))
+    )  # Highest volatility
+
+    # Time-decay: tighten stops for positions older than X hours
+    time_decay_start_hours: int = field(
+        default_factory=lambda: int(os.getenv("TIME_DECAY_START_HOURS", "24"))
+    )  # Start tightening after 24h
+    time_decay_mult_reduction: float = field(
+        default_factory=lambda: float(os.getenv("TIME_DECAY_MULT_REDUCTION", "0.1"))
+    )  # Reduce multiplier by 0.1 per 24h
+    time_decay_min_mult: float = field(
+        default_factory=lambda: float(os.getenv("TIME_DECAY_MIN_MULT", "1.25"))
+    )  # Never go below 1.25× ATR
+
+    def validate(self) -> None:
+        """Validate trailing stop configuration values."""
+        if self.breakeven_atr_trigger < 1.0:
+            raise ValueError(f"Breakeven trigger must be >= 1.0 ATR, got {self.breakeven_atr_trigger}")
+
+        if self.trail_mult_initial < 1.0:
+            raise ValueError(f"Initial trail mult must be >= 1.0, got {self.trail_mult_initial}")
+
+        if self.time_decay_min_mult < 1.0:
+            raise ValueError(f"Min trailing mult must be >= 1.0, got {self.time_decay_min_mult}")
+
+
+@dataclass
 class ScannerConfig:
     """
     Dynamic Opportunity Scanner configuration (Story 5.8).
@@ -1015,6 +1086,7 @@ class Config:
     multi_factor: MultiFactorConfig = field(default_factory=MultiFactorConfig)
     basket: BasketConfig = field(default_factory=BasketConfig)
     trend: TrendConfig = field(default_factory=TrendConfig)
+    trailing_stop: TrailingStopConfig = field(default_factory=TrailingStopConfig)
     web_url: str = field(default_factory=lambda: os.getenv("WEB_URL", ""))
     debug: bool = field(
         default_factory=lambda: os.getenv("DEBUG", "").lower() == "true"
