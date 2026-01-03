@@ -260,7 +260,7 @@ async def execute_buy(
             side="BUY",
             entry_price=fill_price,
             size=filled_quantity,
-            entry_time=datetime.now(timezone.utc),
+            entry_time=datetime.now(timezone.utc).replace(tzinfo=None),  # Naive for Prisma
             stop_loss_price=Decimal(str(stop_loss_price)) if stop_loss_price else fill_price * Decimal("0.95"),
             entry_atr=Decimal(str(entry_atr)) if entry_atr else None,
             kraken_order_id=order.get('id'),
