@@ -616,6 +616,113 @@ async def get_asset_sessions(
 
 
 # =============================================================================
+# Story 5.8: Opportunity Scanner API
+# =============================================================================
+
+@app.post("/api/scanner/run")
+async def trigger_scanner() -> dict[str, Any]:
+    """
+    Manually trigger the opportunity scanner.
+
+    Story 5.8: Dynamic Opportunity Scanner
+
+    Scans all Kraken USD pairs and returns opportunities
+    sorted by trend quality and score.
+
+    Returns:
+        Dict with scan results
+    """
+    from services.opportunity_scanner import run_opportunity_scan, get_opportunity_scanner
+
+    logger.info("Manual scanner run triggered via API")
+
+    try:
+        result = await run_opportunity_scan()
+        scanner = get_opportunity_scanner()
+
+        # Format opportunities for response
+        opportunities = []
+        for opp in result.top_opportunities[:10]:
+            opportunities.append({
+                "symbol": opp.symbol,
+                "score": opp.total_score,
+                "entry_type": opp.entry_type,
+                "trend": opp.trend_direction,
+                "rsi": opp.rsi_value,
+                "volume_24h": opp.volume_24h_usd,
+                "reasoning": opp.reasoning,
+            })
+
+        return {
+            "status": "completed",
+            "timestamp": result.timestamp.isoformat(),
+            "total_pairs_scanned": result.total_pairs_scanned,
+            "pairs_after_volume_filter": result.pairs_after_volume_filter,
+            "pairs_scored": result.pairs_scored,
+            "market_structure": {
+                "uptrends": result.uptrends_found,
+                "downtrends": result.downtrends_found,
+                "sideways": result.sideways_found,
+            },
+            "opportunities_found": result.opportunities_found,
+            "trend_pullbacks": result.trend_pullbacks,
+            "contrarian_extremes": result.contrarian_extremes,
+            "fear_greed": result.fear_greed_index,
+            "duration_seconds": result.scan_duration_seconds,
+            "top_opportunities": opportunities,
+            "dynamic_universe": scanner.get_dynamic_universe(),
+        }
+    except Exception as e:
+        logger.error(f"Manual scanner failed: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Scanner failed: {str(e)}",
+        )
+
+
+@app.get("/api/scanner/results")
+async def get_scanner_results() -> dict[str, Any]:
+    """
+    Get the latest scanner results without running a new scan.
+
+    Returns cached results from the last scan.
+    """
+    from services.opportunity_scanner import get_opportunity_scanner
+
+    scanner = get_opportunity_scanner()
+    result = scanner.get_last_scan_result()
+
+    if not result:
+        return {
+            "status": "no_scan",
+            "message": "No scan results available. Scanner runs hourly at :10 or trigger manually via POST /api/scanner/run",
+        }
+
+    opportunities = []
+    for opp in result.top_opportunities[:10]:
+        opportunities.append({
+            "symbol": opp.symbol,
+            "score": opp.total_score,
+            "entry_type": opp.entry_type,
+            "trend": opp.trend_direction,
+            "rsi": opp.rsi_value,
+        })
+
+    return {
+        "status": "available",
+        "timestamp": result.timestamp.isoformat(),
+        "market_structure": {
+            "uptrends": result.uptrends_found,
+            "downtrends": result.downtrends_found,
+            "sideways": result.sideways_found,
+        },
+        "opportunities_found": result.opportunities_found,
+        "top_opportunities": opportunities,
+        "dynamic_universe": scanner.get_dynamic_universe(),
+    }
+
+
+# =============================================================================
 # Story 5.5: Risk Parameter Optimization - Risk Status API
 # =============================================================================
 

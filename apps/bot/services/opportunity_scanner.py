@@ -326,12 +326,14 @@ class OpportunityScanner:
             logger.info(f"\n[Scanner] TOP OPPORTUNITIES (prioritized by trend quality):")
             for i, opp in enumerate(top_opportunities, 1):
                 type_icon = "📈" if opp.entry_type == "TREND_PULLBACK" else "💎"
+                rsi_str = f"{opp.rsi_value:.1f}" if opp.rsi_value else "N/A"
+                vol_str = f"${opp.volume_24h_usd/1e6:.1f}M" if opp.volume_24h_usd else "N/A"
                 logger.info(
                     f"[Scanner]   {i}. {type_icon} {opp.symbol}: "
                     f"Score {opp.total_score:.0f} | "
                     f"{opp.trend_direction} | "
-                    f"RSI {opp.rsi_value:.1f if opp.rsi_value else 'N/A'} | "
-                    f"Vol ${opp.volume_24h_usd/1e6:.1f}M"
+                    f"RSI {rsi_str} | "
+                    f"Vol {vol_str}"
                 )
                 logger.info(f"[Scanner]      {opp.reasoning}")
         else:
