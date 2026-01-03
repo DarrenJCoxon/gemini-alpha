@@ -1231,19 +1231,21 @@ def create_scheduler() -> AsyncIOScheduler:
         max_instances=1,  # Prevent overlapping executions
     )
 
-    # Add the Opportunity Scanner job (Story 5.8)
-    # Runs at minute 10 each hour (after data ingestion, before council)
+    # Add the Opportunity Scanner job (Story 5.8, Story 5.12)
+    # Story 5.12: Changed from hourly to every 15 min for crypto responsiveness
+    # Runs at :02, :17, :32, :47 (after OHLCV at :00/:15/:30/:45, before Council at :05/:20/:35/:50)
     scheduler.add_job(
         run_opportunity_scan,
-        CronTrigger(minute="10"),
+        CronTrigger(minute="2,17,32,47"),
         id="opportunity_scanner",
-        name="Dynamic Opportunity Scanner",
+        name="Dynamic Opportunity Scanner (15-min)",
         replace_existing=True,
         max_instances=1,  # Prevent overlapping executions
     )
 
     scanner_logger.info(
-        "Scheduler configured with Opportunity Scanner at minute: 10 (hourly)"
+        "Scheduler configured with Opportunity Scanner at minutes: 2,17,32,47 "
+        "(every 15 min for crypto responsiveness)"
     )
 
     return scheduler
